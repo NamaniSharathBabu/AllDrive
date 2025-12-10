@@ -37,17 +37,27 @@ export async function login(req, res){
 }
 
 export async function register(req, res){
-    const {username, email, password} = req.body;
-    //  console.log(req.body);
-    if(!username || !email || !password){
-        return res.status(400).json({success:false, message:"Username, email and password are required"});
+    try {
+        const {username, email, password} = req.body;
+        console.log("Register request body:", req.body);
+        
+        if(!username || !email || !password){
+            console.log("Missing fields - username:", username, "email:", email, "password:", password);
+            return res.status(400).json({success:false, message:"Username, email and password are required"});
+        }
+        
+        const existingUser = await userModel.findOne({email: email});
+        if(existingUser){
+            console.log("User already exists with email:", email);
+            return res.status(400).json({success:false, message:"Email already registered"});
+        }
+        
+        const newUser = new userModel({name:username, email, password:password});
+        await newUser.save();
+        console.log("User registered successfully:", email);
+        res.status(201).json({success:true, message:"User registered successfully"});
+    } catch (error) {
+        console.error("Register error:", error);
+        res.status(500).json({success:false, message:"Registration failed: " + error.message});
     }
-    const existingUser = await userModel.find({email:email});
-    if(existingUser.length > 0){
-        // console.log(existingUser);
-        return res.status(400).json({success:false, message:"User already exists"});
-    }
-    const newUser =new userModel({name:username, email, password:password});
-    await newUser.save();
-    res.status(201).json({success:true, message:"User registered successfully"});
 }

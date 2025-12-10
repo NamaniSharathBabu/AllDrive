@@ -64,13 +64,13 @@ export async function getFiles(req, res) {
         const bucket = await ensureBucket();
         // console.log(req.user);
         const decoded = req.user;
-        const files = await bucket.find({"_id": req.user.id }).toArray();
+        const files = await bucket.find({"metadata.userId": req.user.id }).toArray();
         // console.log(files);
         if(!files || files.length ===0){
-          return res.status(404).send("Start uploading files to see them here");
+          return res.status(200).json([]);
         }
         res.json(files);
     } catch (error) {
-        res.status(500).send("Error retrieving files");
+        res.status(500).json({error: "Error retrieving files"});
     }
 }

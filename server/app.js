@@ -1,9 +1,10 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import routes from '../routes/allRoutes.js';
 import logger from '../middleware/logger.js';
-import dotenv from 'dotenv';
-dotenv.config();
 import mongoose from 'mongoose';
 
 const app = express();
