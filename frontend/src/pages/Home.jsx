@@ -25,12 +25,11 @@ const Home = () => {
     const location = useLocation();
 
     const currentPath = location.pathname
-        .replace('/folders', '')
-        .replace(/^\/+/, '');
+        .replace(/^\/+/, '')+'/';
 
     const fetchFiles = async () => {
         try {
-
+            
             const res = await fetch(`/api/files?path=${encodeURIComponent(currentPath || '')}`, {
                 headers: { 'Authorization': 'Bearer ' + token }
             });
@@ -39,7 +38,7 @@ const Home = () => {
                 handleLogout();
                 return;
             }
-
+            // console.log(location.pathname+" "+currentPath);
             const data = await res.json();
             setFiles(data);
             // console.log(data);
@@ -99,9 +98,6 @@ const Home = () => {
         }
     };
     const handleCreateFolder = async () => {
-        const fullPath = currentPath
-            ? `${currentPath}/${folderName}`
-            : folderName;
 
         await fetch('/api/folders', {
             method: 'POST',
@@ -109,7 +105,7 @@ const Home = () => {
                 'Authorization': 'Bearer ' + token,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ path: fullPath, folderName })
+            body: JSON.stringify({ path: currentPath, folderName })
         });
 
         setShowModal(false);
@@ -138,7 +134,7 @@ const Home = () => {
     useEffect(() => {
         fetchFolders();
     }, [currentPath]);
-    
+
     return (
         <div className="home-container">
             <div className="container">
@@ -182,14 +178,14 @@ const Home = () => {
                             <h2 className="files-title">Your Folders</h2>
                             <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Folder</button>
                         </div>
-                        {/* <div className="folder-list">
+                        <div className="folder-list">
                             {folders.map((folder) => (
                                 <div key={folder._id} className="folder-item">
                                     <h3>{folder.filename}</h3>
                                     <button className="btn btn-primary" onClick={() => navigate(`/folders/${folder._id}`)}>View</button>
                                 </div>
                             ))}
-                        </div> */}
+                        </div>
                     </div>
                     {showModal && (
                         <div className="modal-overlay">

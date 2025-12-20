@@ -111,13 +111,14 @@ export async function createFolder(req, res) {
 }
 export async function getFolders(req, res){
     try{
-        const folders = await foldermodel.find({"metadata.userid":req.user.id,"metadata.path":req.query.path})
+        console.log(req.query.path );
+        const folders = await foldermodel.find({"metadata.userId":req.user.id,"metadata.path":req.query.path})
         if(!folders || folders.length === 0){
             return res.status(200).json([]);
         }
-        res.json(folders);
+       return res.status(200).json(folders);
     }
     catch(err){
-        res.status(500).json({ error: "Error retrieving folders" });
+        return res.status(500).json({ error: "Error retrieving folders" });
     }
 }
