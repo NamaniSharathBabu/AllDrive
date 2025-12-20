@@ -12,6 +12,7 @@ const Home = () => {
     const token = localStorage.getItem('token');
     const [showModal, setShowModal] = useState(false);
     const [folderName, setFolderName] = useState('');
+    const [folders, setFolders] = useState([]);
 
     useEffect(() => {
         if (!token) {
@@ -113,9 +114,31 @@ const Home = () => {
 
         setShowModal(false);
         setFolderName('');
-        fetchFiles(); // re-fetch folder list
+        fetchFolders(); // re-fetch folder list
     };
-
+    const fetchFolders  = async () =>{
+        try{
+            const res = await fetch('/api/folders?path=' + currentPath,
+                {headers :{
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                }}
+            )
+            if(res.ok){
+                const data = await res.json();
+                setFolders(data);
+                console.log(data);
+                
+            }
+        }
+        catch(err){
+            console.log(err);
+        }
+    };
+    useEffect(() => {
+        fetchFolders();
+    }, [currentPath]);
+    
     return (
         <div className="home-container">
             <div className="container">
@@ -159,6 +182,14 @@ const Home = () => {
                             <h2 className="files-title">Your Folders</h2>
                             <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Folder</button>
                         </div>
+                        {/* <div className="folder-list">
+                            {folders.map((folder) => (
+                                <div key={folder._id} className="folder-item">
+                                    <h3>{folder.filename}</h3>
+                                    <button className="btn btn-primary" onClick={() => navigate(`/folders/${folder._id}`)}>View</button>
+                                </div>
+                            ))}
+                        </div> */}
                     </div>
                     {showModal && (
                         <div className="modal-overlay">

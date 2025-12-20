@@ -3,6 +3,7 @@ import { MongoClient, GridFSBucket, ObjectId } from "mongodb";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import foldermodel from "../models/folder.js";
 dotenv.config();
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -64,7 +65,7 @@ export async function getFiles(req, res) {
         const bucket = await ensureBucket();
         // console.log(req.user);
         const decoded = req.user;
-        const files = await bucket.find({ "metadata.userId": req.user.id, "metadata.path": req.query.path, "metadata.isFolder": false }).toArray();
+        const files = await bucket.find({ "metadata.userId": req.user.id, "metadata.path": req.query.path }).toArray();
         // console.log(files);
         if (!files || files.length === 0) {
             return res.status(200).json([]);
@@ -91,23 +92,32 @@ export async function deleteFile(req, res) {
 export async function createFolder(req, res) {
     const { path, folderName } = req.body;
 
-    const folderDoc = {
+    const folderDoc = new foldermodel({
         filename: folderName,
-        length: 0,
         uploadDate: new Date(),
         contentType: 'folder',
         metadata: {
             userId: req.user.id,
             path,
-            isFolder: true
         }
-    };
+    });
 
-    const db = mongoose.connection.db;
-    const result = await db.collection('uploads.files').insertOne(folderDoc);
-    console.log(result);
+    const result = await folderDoc.save();
+    // console.log(result);
     res.status(201).json({
         _id: result.insertedId,
         ...folderDoc
     });
+}
+export async function getFolders(req, res){
+    try{
+        const folders = await foldermodel.find({"metadata.userid":req.user.id,"metadata.path":req.query.path})
+        if(!folders || folders.length === 0){
+            return res.status(200).json([]);
+        }
+        res.json(folders);
+    }
+    catch(err){
+        res.status(500).json({ error: "Error retrieving folders" });
+    }
 }
