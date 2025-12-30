@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -14,6 +14,8 @@ const Home = () => {
     const [folderName, setFolderName] = useState('');
     const [folders, setFolders] = useState([]);
     const [currentPath, setCurrentPath] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [activeMenu, setActiveMenu] = useState(null);
 
     useEffect(() => {
         if (!token) {
@@ -23,6 +25,13 @@ const Home = () => {
         fetchFiles();
         fetchFolders();
     }, [token, navigate, currentPath]);
+
+    const openFile = (fileId) => {
+  window.open(
+    `http://localhost:5000/api/files/${fileId}/view`,
+    '_blank'
+  );
+};
 
     const fetchFiles = async () => {
         try {
@@ -160,13 +169,71 @@ const Home = () => {
     const fileInputRef = useRef(null);
 
     const handleDrop = (e) => {
-    e.preventDefault();
-    const droppedFiles = e.dataTransfer.files;
+        e.preventDefault();
+        const droppedFiles = e.dataTransfer.files;
 
-    if (fileInputRef.current) {
-        fileInputRef.current.files = droppedFiles;
-    }
+        if (fileInputRef.current) {
+            fileInputRef.current.files = droppedFiles;
+        }
     };
+    const handleOpenFile = async (file) => {
+        try {
+            const fileId = file._id;
+            const cacheName = 'file-cache';
+            const requestUrl = `/api/files/content/${fileId}`;
+            console.log(fileId + "before opening ifile in home.jsx")
+            // Try to open from cache first
+            const cache = await window.caches.open(cacheName);
+            const cachedResponse = await cache.match(requestUrl);
+
+            if (cachedResponse) {
+                console.log("Opening from cache:", file.filename);
+                const blob = await cachedResponse.blob();
+                const url = window.URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                return;
+            }
+
+            // If not in cache, download it
+            setStatus(`Downloading ${file.filename}...`);
+            console.log("Downloading file:", file.filename);
+
+            const response = await fetch(requestUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            if (!response.ok) {
+                throw new Error('Download failed');
+            }
+
+            // Clone response to put in cache (response body can only be consumed once)
+            const responseClone = response.clone();
+            await cache.put(requestUrl, responseClone);
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+
+            setStatus(''); // Clear status
+            window.open(url, '_blank');
+
+        } catch (err) {
+            console.error("Error opening file:", err);
+            setStatus('Error opening file.');
+        }
+    };
+
+    const toggleMenu = (fileId, e) => {
+        e.stopPropagation();
+        setActiveMenu(activeMenu === fileId ? null : fileId);
+    };
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => setActiveMenu(null);
+        window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, []);
     return (
         <div className="home-container">
             <div className="container">
@@ -174,6 +241,7 @@ const Home = () => {
                     <h1 className="header-title">
                         <span className="text-primary">All</span>Drive
                     </h1>
+                    <button onClick={() => navigate('/account')} className="btn btn-primary">Account</button>
                     <button onClick={handleLogout} className="btn btn-logout">
                         <FaSignOutAlt /> Logout
                     </button>
@@ -187,12 +255,12 @@ const Home = () => {
                             <FaCloudUploadAlt className="icon-primary" /> Upload Files
                         </h2>
                         <form onSubmit={handleUpload}>
-                      <div className="dropzone" onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e)}>
-                        <input type="file" name="files" multiple className="file-input" ref={fileInputRef}/>
-                        <p className="dropzone-text">
-                            Drag and drop or review files
-                        </p>
-                        </div>
+                            <div className="dropzone" onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e)}>
+                                <input type="file" name="files" multiple className="file-input" ref={fileInputRef} />
+                                <p className="dropzone-text">
+                                    Drag and drop or review files
+                                </p>
+                            </div>
 
                             <button type="submit" disabled={uploading} className="btn btn-primary btn-full-width">
                                 {uploading ? 'Uploading...' : 'Upload Now'}
@@ -219,11 +287,30 @@ const Home = () => {
                             </div>
                         </div>
                         <div className="folder-list">
-                            {folders.map((folder) => (
-                                <div key={folder._id} className="folder-item">
+                            {folders.filter(folder => folder.filename.toLowerCase().includes(searchQuery.toLowerCase())).map((folder) => (
+                                <div key={folder._id} className="folder-item" onDoubleClick={() => changeToNewFolder(folder.filename)}>
                                     <h3>{folder.filename}</h3>
-                                    <button className="btn btn-primary" onClick={() => changeToNewFolder(folder.filename)}>View</button>
-                                    <button className="btn btn-warning" onClick={() => handelDeleteFolder(folder._id)}>Delete</button>
+
+                                    <div className="menu-container">
+                                        <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(folder._id, e)}>
+                                            <FaEllipsisV />
+                                        </button>
+
+                                        {activeMenu === folder._id && (
+                                            <div className="menu-dropdown">
+                                                <div className="menu-item" onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    changeToNewFolder(folder.filename);
+                                                    setActiveMenu(null);
+                                                }}>Open</div>
+                                                <div className="menu-item delete-item" onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handelDeleteFolder(folder._id);
+                                                    setActiveMenu(null);
+                                                }}>Delete</div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -257,27 +344,48 @@ const Home = () => {
 
                                 <div className="search-wrapper">
                                     <FaSearch className="search-icon" />
-                                    <input type="text" className="input-field search-input" placeholder="Search..." />
+                                    <input type="text" className="input-field search-input" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                                 </div>
                             </div>
                         </div>
 
-                        {files.length === 0 ? (
+                        {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
                             <div className="no-files">
                                 <FaFileAlt className="no-files-icon" />
-                                <p>No files found. Start uploading!</p>
+                                <p>No files found.</p>
                             </div>
                         ) : (
                             <ul className="file-list">
-                                {files.map((file, index) => (
-                                    <li key={index} className="file-item">
+                                {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((file, index) => (
+                                    <li key={index} className="file-item" onDoubleClick={() => handleOpenFile(file)}>
                                         <div className="file-icon-wrapper">
                                             <FaFileAlt />
                                         </div>
                                         <span className="file-name">
                                             {typeof file === 'string' ? file : file.filename || 'Untitled'}
                                         </span>
-                                        <button onClick={() => handleDelete(file)} className="btn btn-delete btn btn-warning">Delete</button>
+                                        <button onClick={() => handleOpenFile(file)}>Open</button>
+
+                                        <div className="menu-container">
+                                            <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(file._id || index, e)}>
+                                                <FaEllipsisV />
+                                            </button>
+
+                                            {activeMenu === (file._id || index) && (
+                                                <div className="menu-dropdown">
+                                                    <div className="menu-item" onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenFile(file);
+                                                        setActiveMenu(null);
+                                                    }}>Open</div>
+                                                    <div className="menu-item delete-item" onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDelete(file);
+                                                        setActiveMenu(null);
+                                                    }}>Delete</div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
