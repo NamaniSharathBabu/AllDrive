@@ -139,16 +139,20 @@ export async function downloadFile(req, res) {
     try {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
-        console.log(fileId+" in uploadFIles downloadig file");
-        const file = await bucket.findOne({ _id: fileId });
-        if (!file) {
-            return res.status(404).json({ error: 'File not found' });
+        // console.log(fileId+" in uploadFIles downloadig file");
+        const file = await bucket.find({ _id: fileId }).toArray();//checking if metadatat is present
+        if (!file || file.length === 0) {
+            return res.status(404).json({ error: 'File not found' });//if metadata is not present then file is not found
         }
-        res.set('Content-Type', file.contentType);
-        res.set('Content-Disposition', `inline; filename="${file.filename}"`);
+        res.set('Content-Type', file[0].contentType);
+        res.set('Content-Disposition', `inline; filename="${file[0].filename}"`);
         res.set('Cache-Control', 'private, max-age=86400'); // 1 day
 
         const downloadStream = bucket.openDownloadStream(fileId);
+        downloadStream.on('error', (err)=>{
+            console.error("Error downloading file", err);
+            res.status(500).json({error:"Error downloading file"})
+        })
         downloadStream.pipe(res);
     } catch (err) {
         console.error("Error downloading file:", err);

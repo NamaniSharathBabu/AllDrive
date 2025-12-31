@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -27,11 +27,11 @@ const Home = () => {
     }, [token, navigate, currentPath]);
 
     const openFile = (fileId) => {
-  window.open(
-    `http://localhost:5000/api/files/${fileId}/view`,
-    '_blank'
-  );
-};
+        window.open(
+            `http://localhost:5000/api/files/${fileId}/view`,
+            '_blank'
+        );
+    };
 
     const fetchFiles = async () => {
         try {
@@ -188,10 +188,13 @@ const Home = () => {
 
             if (cachedResponse) {
                 console.log("Opening from cache:", file.filename);
-                const blob = await cachedResponse.blob();
+                const blob = await cachedResponse.blob(); // Blob - Binary Large Object(converting response to blob)
                 const url = window.URL.createObjectURL(blob);
                 window.open(url, '_blank');
                 return;
+                // Blob = water in a bottle
+                // URL = label on the bottle
+                // Browser opens the bottle using the label
             }
 
             // If not in cache, download it
@@ -279,17 +282,20 @@ const Home = () => {
                             <h2 className="files-title">Your Folders</h2>
                             <div className="folder-actions">
                                 {currentPath && (
-                                    <button className="btn btn-secondary mr-2" onClick={handleGoBack}>
+                                    <button className="btn btn-primary mr-2" onClick={handleGoBack}>
                                         Go Back
                                     </button>
                                 )}
                                 <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Folder</button>
                             </div>
                         </div>
-                        <div className="folder-list">
+                        <ul className="file-list">
                             {folders.filter(folder => folder.filename.toLowerCase().includes(searchQuery.toLowerCase())).map((folder) => (
-                                <div key={folder._id} className="folder-item" onDoubleClick={() => changeToNewFolder(folder.filename)}>
-                                    <h3>{folder.filename}</h3>
+                                <li key={folder._id} className="file-item" onDoubleClick={() => changeToNewFolder(folder.filename)}>
+                                    <div className="file-icon-wrapper" style={{ background: '#e0e0e0', color: '#5f6368' }}>
+                                        <FaFolder />
+                                    </div>
+                                    <span className="file-name">{folder.filename}</span>
 
                                     <div className="menu-container">
                                         <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(folder._id, e)}>
@@ -311,9 +317,9 @@ const Home = () => {
                                             </div>
                                         )}
                                     </div>
-                                </div>
+                                </li>
                             ))}
-                        </div>
+                        </ul>
                     </div>
                     {showModal && (
                         <div className="modal-overlay">
@@ -364,7 +370,6 @@ const Home = () => {
                                         <span className="file-name">
                                             {typeof file === 'string' ? file : file.filename || 'Untitled'}
                                         </span>
-                                        <button onClick={() => handleOpenFile(file)}>Open</button>
 
                                         <div className="menu-container">
                                             <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(file._id || index, e)}>
