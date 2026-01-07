@@ -225,7 +225,11 @@ const Home = () => {
             setStatus('Error opening file.');
         }
     };
-
+    function previewFile(fileId){
+        const red = `/api/files/previewFile/${fileId}`;
+        console.log(red);
+        return red;
+    }
     const toggleMenu = (fileId, e) => {
         e.stopPropagation();
         setActiveMenu(activeMenu === fileId ? null : fileId);
@@ -364,7 +368,19 @@ const Home = () => {
                             <ul className="file-list">
                                 {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((file, index) => (
                                     <li key={index} className="file-item" onDoubleClick={() => handleOpenFile(file)}>
-                                        <div className="file-icon-wrapper">
+                                        
+                                            <div>
+                                            {/* <img src={previewFile(file._id)} alt="preview" style={{height:"200px", widows:'100px'}}/> */}
+
+                                        {/* <iframe
+                                            src={previewFile(file._id)}
+                                            width="100%"
+                                            height="200px"
+                                            title="File Preview">
+                                        </iframe> */}
+                                            </div>
+                                        <div>
+                                            <div className="file-icon-wrapper">
                                             <FaFileAlt />
                                         </div>
                                         <span className="file-name">
@@ -390,6 +406,7 @@ const Home = () => {
                                                     }}>Delete</div>
                                                 </div>
                                             )}
+                                        </div>
                                         </div>
                                     </li>
                                 ))}

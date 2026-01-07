@@ -159,3 +159,14 @@ export async function downloadFile(req, res) {
         res.status(500).json({ error: "Error downloading file" });
     }
 }
+export async function previewFile(req,res){
+  const fileId = new ObjectId(req.params.fileId);
+    const bucket = await ensureBucket();
+  const file = await bucket.find({ _id: fileId }).toArray();
+
+  res.set('Content-Type', file[0].contentType);
+  res.set('Content-Disposition', 'inline'); // 👈 key line
+
+  const readStream = bucket.openDownloadStream(fileId);
+  readStream.pipe(res);
+}
