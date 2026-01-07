@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -225,7 +225,7 @@ const Home = () => {
             setStatus('Error opening file.');
         }
     };
-    function previewFile(fileId){
+    function previewFile(fileId) {
         const red = `/api/files/previewFile/${fileId}`;
         console.log(red);
         return red;
@@ -233,6 +233,24 @@ const Home = () => {
     const toggleMenu = (fileId, e) => {
         e.stopPropagation();
         setActiveMenu(activeMenu === fileId ? null : fileId);
+    };
+
+    const getFileIcon = (filename) => {
+        const ext = filename?.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return <FaFileImage />;
+        if (['pdf'].includes(ext)) return <FaFilePdf />;
+        if (['doc', 'docx'].includes(ext)) return <FaFileWord />;
+        if (['xls', 'xlsx'].includes(ext)) return <FaFileExcel />;
+        if (['ppt', 'pptx'].includes(ext)) return <FaFilePowerpoint />;
+        if (['mp3', 'wav', 'ogg'].includes(ext)) return <FaFileAudio />;
+        if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) return <FaFileVideo />;
+        if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'py', 'java', 'c', 'cpp'].includes(ext)) return <FaFileCode />;
+        return <FaFile />;
+    };
+
+    const isImageFile = (filename) => {
+        const ext = filename?.split('.').pop().toLowerCase();
+        return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
     };
 
     // Close menu when clicking outside
@@ -295,10 +313,8 @@ const Home = () => {
                         </div>
                         <ul className="file-list">
                             {folders.filter(folder => folder.filename.toLowerCase().includes(searchQuery.toLowerCase())).map((folder) => (
-                                <li key={folder._id} className="file-item" onDoubleClick={() => changeToNewFolder(folder.filename)}>
-                                    <div className="file-icon-wrapper" style={{ background: '#e0e0e0', color: '#5f6368' }}>
-                                        <FaFolder />
-                                    </div>
+                                <li key={folder._id} className="folder-item" onDoubleClick={() => changeToNewFolder(folder.filename)}>
+                                    <FaFolder className="folder-icon-large" />
                                     <span className="file-name">{folder.filename}</span>
 
                                     <div className="menu-container">
@@ -366,50 +382,63 @@ const Home = () => {
                             </div>
                         ) : (
                             <ul className="file-list">
-                                {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((file, index) => (
-                                    <li key={index} className="file-item" onDoubleClick={() => handleOpenFile(file)}>
-                                        
-                                            <div>
-                                            {/* <img src={previewFile(file._id)} alt="preview" style={{height:"200px", widows:'100px'}}/> */}
+                                {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((file, index) => {
+                                    const filename = typeof file === 'string' ? file : file.filename || 'Untitled';
+                                    const fileId = file._id || index;
+                                    const isImg = isImageFile(filename);
+                                    const isPdf = filename?.toLowerCase().endsWith('.pdf');
 
-                                        {/* <iframe
-                                            src={previewFile(file._id)}
-                                            width="100%"
-                                            height="200px"
-                                            title="File Preview">
-                                        </iframe> */}
+                                    return (
+                                        <li key={fileId} className="file-card" onDoubleClick={() => handleOpenFile(file)}>
+                                            <div className="file-preview">
+                                                {isImg ? (
+                                                    <img src={previewFile(file._id)} alt={filename} className="preview-image" />
+                                                ) : isPdf ? (
+                                                    <iframe
+                                                        src={`${previewFile(file._id)}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
+                                                        className="preview-iframe"
+                                                        title={filename}
+                                                        scrolling="no"
+                                                    />
+                                                ) : (
+                                                    <div className="preview-icon">
+                                                        {getFileIcon(filename)}
+                                                    </div>
+                                                )}
                                             </div>
-                                        <div>
-                                            <div className="file-icon-wrapper">
-                                            <FaFileAlt />
-                                        </div>
-                                        <span className="file-name">
-                                            {typeof file === 'string' ? file : file.filename || 'Untitled'}
-                                        </span>
 
-                                        <div className="menu-container">
-                                            <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(file._id || index, e)}>
-                                                <FaEllipsisV />
-                                            </button>
-
-                                            {activeMenu === (file._id || index) && (
-                                                <div className="menu-dropdown">
-                                                    <div className="menu-item" onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenFile(file);
-                                                        setActiveMenu(null);
-                                                    }}>Open</div>
-                                                    <div className="menu-item delete-item" onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleDelete(file);
-                                                        setActiveMenu(null);
-                                                    }}>Delete</div>
+                                            <div className="file-footer">
+                                                <div className="file-icon-small">
+                                                    {getFileIcon(filename)}
                                                 </div>
-                                            )}
-                                        </div>
-                                        </div>
-                                    </li>
-                                ))}
+                                                <span className="file-name" title={filename}>
+                                                    {filename}
+                                                </span>
+
+                                                <div className="menu-container">
+                                                    <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(fileId, e)}>
+                                                        <FaEllipsisV />
+                                                    </button>
+
+                                                    {activeMenu === fileId && (
+                                                        <div className="menu-dropdown">
+                                                            <div className="menu-item" onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleOpenFile(file);
+                                                                setActiveMenu(null);
+                                                            }}>Open</div>
+                                                            <div className="menu-item delete-item" onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDelete(file);
+                                                                setActiveMenu(null);
+                                                            }}>Delete</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         )}
                     </div>
