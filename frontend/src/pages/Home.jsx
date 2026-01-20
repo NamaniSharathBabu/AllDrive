@@ -8,7 +8,6 @@ const Home = () => {
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [status, setStatus] = useState('');
-    const navigate = useNavigate();
     const token = localStorage.getItem('token');
     const [showModal, setShowModal] = useState(false);
     const [folderName, setFolderName] = useState('');
@@ -16,6 +15,8 @@ const Home = () => {
     const [currentPath, setCurrentPath] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [activeMenu, setActiveMenu] = useState(null);
+    const location = useLocation();
+    const navigate = useNavigate();
 
     useEffect(() => {
         if (!token) {
@@ -26,12 +27,12 @@ const Home = () => {
         fetchFolders();
     }, [token, navigate, currentPath]);
 
-    const openFile = (fileId) => {
-        window.open(
-            `http://localhost:5000/api/files/${fileId}/view`,
-            '_blank'
-        );
-    };
+    // const openFile = (fileId) => {
+    //     window.open(
+    //         `http://localhost:5000/api/files/${fileId}/view`,
+    //         '_blank'
+    //     );
+    // };
 
     const fetchFiles = async () => {
         try {
@@ -44,7 +45,7 @@ const Home = () => {
                 return;
             }
             const data = await res.json();
-            setFiles(data);
+            setFiles(data);                             
         } catch (err) {
             console.error('Error fetching files:', err);
         }
@@ -154,8 +155,9 @@ const Home = () => {
         }
     };
 
-    const changeToNewFolder = (path) => {
-        setCurrentPath(prev => prev + path + '/');
+    const changeToNewFolder = (folder) => {
+        setCurrentPath(prev => prev + folder + '/');
+        navigate(`/home?path=${encodeURIComponent(currentPath)}`);
     };
 
     const handleGoBack = () => {
@@ -398,7 +400,6 @@ const Home = () => {
                                                         src={`${previewFile(file._id)}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
                                                         className="preview-iframe"
                                                         title={filename}
-                                                        scrolling="no"
                                                     />
                                                 ) : (
                                                     <div className="preview-icon">
