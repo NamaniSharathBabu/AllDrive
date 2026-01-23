@@ -12,11 +12,18 @@ const Home = () => {
     const [showModal, setShowModal] = useState(false);
     const [folderName, setFolderName] = useState('');
     const [folders, setFolders] = useState([]);
-    const [currentPath, setCurrentPath] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [activeMenu, setActiveMenu] = useState(null);
     const location = useLocation();
     const navigate = useNavigate();
+
+    // Derive currentPath from URL query params
+    const getPathFromUrl = () => {
+        const params = new URLSearchParams(location.search);
+        return params.get('path') || '';
+    };
+
+    const currentPath = getPathFromUrl();
 
     useEffect(() => {
         if (!token) {
@@ -25,7 +32,7 @@ const Home = () => {
         }
         fetchFiles();
         fetchFolders();
-    }, [token, navigate, currentPath]);
+    }, [token, navigate, currentPath]); // Depend on currentPath (which comes from URL)
 
     // const openFile = (fileId) => {
     //     window.open(
@@ -45,7 +52,7 @@ const Home = () => {
                 return;
             }
             const data = await res.json();
-            setFiles(data);                             
+            setFiles(data);
         } catch (err) {
             console.error('Error fetching files:', err);
         }
@@ -156,17 +163,17 @@ const Home = () => {
     };
 
     const changeToNewFolder = (folder) => {
-        setCurrentPath(prev => prev + folder + '/');
-        navigate(`/home?path=${encodeURIComponent(currentPath)}`);
+        // Just navigate basically updates the URL, and useEffect picks it up
+        const newPath = currentPath + folder + '/';
+        navigate(`/home?path=${encodeURIComponent(newPath)}`);
     };
 
     const handleGoBack = () => {
-        setCurrentPath(prev => {
-            if (!prev) return '';
-            const parts = prev.split('/').filter(p => p);
-            parts.pop();
-            return parts.length > 0 ? parts.join('/') + '/' : '';
-        });
+        if (!currentPath) return;
+        const parts = currentPath.split('/').filter(p => p);
+        parts.pop();
+        const newPath = parts.length > 0 ? parts.join('/') + '/' : '';
+        navigate(newPath ? `/home?path=${encodeURIComponent(newPath)}` : '/home');
     };
     const fileInputRef = useRef(null);
 
