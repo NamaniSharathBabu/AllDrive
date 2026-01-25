@@ -14,17 +14,6 @@ router.delete('/files/:fileId', authMiddleware, deleteFile);
 router.post('/folders', authMiddleware, createFolder);
 router.get('/folders', authMiddleware, getFolders);
 router.delete('/folders/:folderId', authMiddleware, deleteFolder);
-router.get('/files/previewFile/:fileId', previewFile);
-
-router.get('/users', async (req, res) => {
-    await userModel.find().then(users => {
-        res.json(users);
-    }).catch(err => {
-        res.status(500).json({ message: "Error retrieving users" });
-    });
-})
-
-
-
+router.get('/files/previewFile/:fileId',authMiddleware, previewFile);
 
 export default router;

@@ -5,18 +5,18 @@ import jwt from "jsonwebtoken";
 export async function login(req, res) {
     const { email, password } = req.body;
     if (!email || !password) {
-        console.log("not all fields");
+        // console.log("not all fields");
         return res.status(400).json({ success: false, message: "Email and password are required" });
     }
     const user = await userModel.findOne({ email: email });
     if (!user) {
-        console.log("User not found");
+        // console.log("User not found");
         return res.status(400).json({ success: false, message: "User not found" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-        console.log("Invalid credentials");
+        // console.log("Invalid credentials");
         return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
     //createin a jwt token
@@ -54,10 +54,10 @@ export async function register(req, res) {
 
         const newUser = new userModel({ name: username, email, password: password });
         await newUser.save();
-        console.log("User registered successfully:", email);
+        // console.log("User registered successfully:", email);
         res.status(201).json({ success: true, message: "User registered successfully" });
     } catch (error) {
-        console.error("Register error:", error);
+        // console.error("Register error:", error);
         res.status(500).json({ success: false, message: "Registration failed: " + error.message });
     }
 }

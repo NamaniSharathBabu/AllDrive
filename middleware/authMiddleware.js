@@ -1,5 +1,9 @@
 import jwt from "jsonwebtoken";
 
+if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined");
+}
+
 export async function authMiddleware(req, res, next){
     let token = null;
     const authHeader = req.headers['authorization'];
@@ -18,6 +22,6 @@ export async function authMiddleware(req, res, next){
         next();
     }
     catch(err){ 
-        return res.status(401).json({success:false, message:"Invalid token"});
+        return res.status(401).json({success:false, message:"Token expired or Invalid token"});
     }
 }

@@ -5,6 +5,7 @@ import './Home.css';
 import { useRef } from 'react';
 
 const Home = () => {
+    const API = import.meta.env.VITE_API_BASE_URL;
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [status, setStatus] = useState('');
@@ -32,7 +33,7 @@ const Home = () => {
 
     useEffect(() => {
         if (!token) {
-            navigate('/login');
+            navigate(`/login`);
             return;
         }
         fetchFiles();
@@ -48,7 +49,7 @@ const Home = () => {
 
     const fetchFiles = async () => {
         try {
-            const res = await fetch(`/api/files?path=${encodeURIComponent(currentPath || '')}`, {
+            const res = await fetch(`${API}/api/files?path=${encodeURIComponent(currentPath || '')}`, {
                 headers: { 'Authorization': 'Bearer ' + token }
             });
 
@@ -77,7 +78,7 @@ const Home = () => {
         setStatus('');
 
         try {
-            const res = await fetch('/api/upload', {
+            const res = await fetch(`${API}/api/upload`, {
                 method: 'POST',
                 body: formData,
                 headers: { 'Authorization': 'Bearer ' + token }
@@ -100,7 +101,7 @@ const Home = () => {
         try {
             const fileId = file._id;
             console.log(file);
-            const res = await fetch('/api/files/' + fileId, {
+            const res = await fetch(`${API}/api/files/${fileId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
@@ -115,7 +116,7 @@ const Home = () => {
     };
     const handleCreateFolder = async () => {
 
-        await fetch('/api/folders', {
+        await fetch(`${API}/api/folders`, {
             method: 'POST',
             headers: {
                 'Authorization': 'Bearer ' + token,
@@ -131,7 +132,7 @@ const Home = () => {
     const fetchFolders = async () => {
         try {
             console.log(currentPath);
-            const res = await fetch('/api/folders?path=' + currentPath,
+            const res = await fetch(`${API}/api/folders?path=${encodeURIComponent(currentPath || '')}`,
                 {
                     headers: {
                         'Authorization': 'Bearer ' + token,
@@ -153,7 +154,7 @@ const Home = () => {
 
     const handelDeleteFolder = async (folderId) => {
         try {
-            const res = await fetch('/api/folders/' + folderId, {
+            const res = await fetch(`${API}/api/folders/${folderId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
@@ -194,14 +195,14 @@ const Home = () => {
         try {
             const fileId = file._id;
             const cacheName = 'file-cache';
-            const requestUrl = `/api/files/content/${fileId}`;
-            console.log(fileId + "before opening ifile in home.jsx")
+            const requestUrl = `${API}/api/files/content/${fileId}`;
+            // console.log(fileId + "before opening ifile in home.jsx")
             // Try to open from cache first
             const cache = await window.caches.open(cacheName);
             const cachedResponse = await cache.match(requestUrl);
 
             if (cachedResponse) {
-                console.log("Opening from cache:", file.filename);
+                // console.log("Opening from cache:", file.filename);
                 const blob = await cachedResponse.blob(); // Blob - Binary Large Object(converting response to blob)
                 const url = window.URL.createObjectURL(blob);
                 window.open(url, '_blank');
@@ -213,7 +214,7 @@ const Home = () => {
 
             // If not in cache, download it
             setStatus(`Downloading ${file.filename}...`);
-            console.log("Downloading file:", file.filename);
+            // console.log("Downloading file:", file.filename);
 
             const response = await fetch(requestUrl, {
                 method: 'GET',
@@ -245,55 +246,50 @@ const Home = () => {
         };
     }, []);
 
-useEffect(() => {
-  let active = true;
-  const createdUrls = {};
+    useEffect(() => {
+        let active = true;
+        const createdUrls = {};
 
-  const loadPreviews = async () => {
-    for (const file of files) {
-      if (!file?._id) continue;
+        const loadPreviews = async () => {
+            for (const file of files) {
+                if (!file?._id) continue;
 
-      const filename = file.filename?.toLowerCase() || '';
-      const isImg = isImageFile(filename);
-      const isPdf = filename.endsWith('.pdf');
+                const filename = file.filename?.toLowerCase() || '';
+                const isImg = isImageFile(filename);
+                const isPdf = filename.endsWith('.pdf');
 
-      // ❌ skip non-previewable files
-      if (!isImg && !isPdf) continue;
+                // ❌ skip non-previewable files
+                if (!isImg && !isPdf) continue;
 
-      // ❌ skip already loaded
-      if (previewUrls[file._id]) continue;
+                // ❌ skip already loaded
+                if (previewUrls[file._id]) continue;
 
-      const url = await previewFile(file._id);
-      if (!active) break;
+                const url = await previewFile(file._id);
+                if (!active) break;
 
-      createdUrls[file._id] = url;
+                createdUrls[file._id] = url;
 
-      setPreviewUrls(prev => ({
-        ...prev,
-        [file._id]: url
-      }));
-    }
-  };
-
-  loadPreviews();
-}, [files]);
-useEffect(() => {
-  return () => {
-    Object.values(previewUrls).forEach(URL.revokeObjectURL);
-  };
-}, []);
-        async function previewFile(fileId) {
-            const res = await fetch(`/api/files/previewFile/${fileId}`, {
-                headers: { Authorization: 'Bearer ' + token }
-            });
-
-            if (!res.ok) {
-                throw new Error('Preview fetch failed');
+                setPreviewUrls(prev => ({
+                    ...prev,
+                    [file._id]: url
+                }));
             }
+        };
 
-            const blob = await res.blob();
-            return URL.createObjectURL(blob);
+        loadPreviews();
+    }, [files]);
+    async function previewFile(fileId) {
+        const res = await fetch(`${API}/api/files/previewFile/${fileId}`, {
+            headers: { Authorization: 'Bearer ' + token }
+        });
+
+        if (!res.ok) {
+            throw new Error('Preview fetch failed');
         }
+
+        const blob = await res.blob();
+        return URL.createObjectURL(blob);
+    }
 
     const toggleMenu = (fileId, e) => {
         e.stopPropagation();
@@ -455,34 +451,7 @@ useEffect(() => {
 
                                     return (
                                         <li key={fileId} className="file-card" onDoubleClick={() => handleOpenFile(file)}>
-                                            <div className="file-preview">
-                                                {isImg ? (
-                                                    previewUrls[file._id] ? (
-                                                    <img
-                                                        src={previewUrls[file._id]}
-                                                        alt={filename}
-                                                        className="preview-image"
-                                                    />
-                                                    ) : (
-                                                    <div>Loading...</div>
-                                                    )
-                                                ) : isPdf ? (
-                                                    previewUrls[file._id] ? (
-                                                    <iframe
-                                                        src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
-                                                        className="preview-iframe"
-                                                        title={filename}
-                                                    />
-                                                    ) : (
-                                                    <div>Loading...</div>
-                                                    )
-                                                ) : (
-                                                    <div className="preview-icon">{getFileIcon(filename)}</div>
-                                                )}
-                                            </div>
-
-
-                                            <div className="file-footer">
+                                            <div className="file-header">
                                                 <div className="file-icon-small">
                                                     {getFileIcon(filename)}
                                                 </div>
@@ -510,6 +479,32 @@ useEffect(() => {
                                                         </div>
                                                     )}
                                                 </div>
+                                            </div>
+
+                                            <div className="file-preview">
+                                                {isImg ? (
+                                                    previewUrls[file._id] ? (
+                                                        <img
+                                                            src={previewUrls[file._id]}
+                                                            alt={filename}
+                                                            className="preview-image"
+                                                        />
+                                                    ) : (
+                                                        <div>Loading...</div>
+                                                    )
+                                                ) : isPdf ? (
+                                                    previewUrls[file._id] ? (
+                                                        <iframe
+                                                            src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
+                                                            className="preview-iframe"
+                                                            title={filename}
+                                                        />
+                                                    ) : (
+                                                        <div>Loading...</div>
+                                                    )
+                                                ) : (
+                                                    <div className="preview-icon">{getFileIcon(filename)}</div>
+                                                )}
                                             </div>
                                         </li>
                                     );

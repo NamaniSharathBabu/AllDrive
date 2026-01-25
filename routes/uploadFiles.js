@@ -1,5 +1,5 @@
 import multer from "multer";
-import { MongoClient, GridFSBucket, ObjectId } from "mongodb";
+import { GridFSBucket, ObjectId } from "mongodb";
 import { Readable } from "stream";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
@@ -79,6 +79,9 @@ export async function deleteFile(req, res) {
     try {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
+        if(!fileId){
+            return res.status(404).json({ error: "File not found" });
+        }
         await bucket.delete(fileId);
 
         res.status(200).json({ message: "File deleted successfully" });
@@ -124,7 +127,7 @@ export async function getFolders(req, res) {
 export async function deleteFolder(req, res) {
     try {
         const folderId = req.params.folderId;
-        const result = await foldermodel.findByIdAndDelete(folderId);
+        const result = await foldermodel.findByIdAndDelete(folderId, { "metadata.userId": req.user.id });
         if (result.ok) {
             res.status(200).json({ message: "Folder deleted successfully", result });
         }
@@ -140,7 +143,7 @@ export async function downloadFile(req, res) {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
         // console.log(fileId+" in uploadFIles downloadig file");
-        const file = await bucket.find({ _id: fileId }).toArray();//checking if metadatat is present
+        const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();//checking if metadatat is present
         if (!file || file.length === 0) {
             return res.status(404).json({ error: 'File not found' });//if metadata is not present then file is not found
         }
@@ -162,7 +165,7 @@ export async function downloadFile(req, res) {
 export async function previewFile(req,res){
   const fileId = new ObjectId(req.params.fileId);
     const bucket = await ensureBucket();
-  const file = await bucket.find({ _id: fileId }).toArray();
+  const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
 
   res.set('Content-Type', file[0].contentType);
   res.set('Content-Disposition', 'inline'); // 👈 key line
