@@ -16,6 +16,11 @@ const Home = () => {
     const [activeMenu, setActiveMenu] = useState(null);
     const location = useLocation();
     const navigate = useNavigate();
+    const [previewUrls, setPreviewUrls] = useState({});
+    const observerRef = useRef(null);//only loads when files in viewport
+    const fileRefs = useRef({}); //Intersection observer for infinite scroll
+
+
 
     // Derive currentPath from URL query params
     const getPathFromUrl = () => {
@@ -234,11 +239,62 @@ const Home = () => {
             setStatus('Error opening file.');
         }
     };
-    function previewFile(fileId) {
-        const red = `/api/files/previewFile/${fileId}`;
-        console.log(red);
-        return red;
+    useEffect(() => {
+        return () => {  // cleanup after component unmounts(component is removed from the DOM)
+            Object.values(previewUrls).forEach(URL.revokeObjectURL); // revokeObjectURL() releases the memory occupied by the object URL
+        };
+    }, []);
+
+useEffect(() => {
+  let active = true;
+  const createdUrls = {};
+
+  const loadPreviews = async () => {
+    for (const file of files) {
+      if (!file?._id) continue;
+
+      const filename = file.filename?.toLowerCase() || '';
+      const isImg = isImageFile(filename);
+      const isPdf = filename.endsWith('.pdf');
+
+      // ❌ skip non-previewable files
+      if (!isImg && !isPdf) continue;
+
+      // ❌ skip already loaded
+      if (previewUrls[file._id]) continue;
+
+      const url = await previewFile(file._id);
+      if (!active) break;
+
+      createdUrls[file._id] = url;
+
+      setPreviewUrls(prev => ({
+        ...prev,
+        [file._id]: url
+      }));
     }
+  };
+
+  loadPreviews();
+}, [files]);
+useEffect(() => {
+  return () => {
+    Object.values(previewUrls).forEach(URL.revokeObjectURL);
+  };
+}, []);
+        async function previewFile(fileId) {
+            const res = await fetch(`/api/files/previewFile/${fileId}`, {
+                headers: { Authorization: 'Bearer ' + token }
+            });
+
+            if (!res.ok) {
+                throw new Error('Preview fetch failed');
+            }
+
+            const blob = await res.blob();
+            return URL.createObjectURL(blob);
+        }
+
     const toggleMenu = (fileId, e) => {
         e.stopPropagation();
         setActiveMenu(activeMenu === fileId ? null : fileId);
@@ -401,19 +457,30 @@ const Home = () => {
                                         <li key={fileId} className="file-card" onDoubleClick={() => handleOpenFile(file)}>
                                             <div className="file-preview">
                                                 {isImg ? (
-                                                    <img src={previewFile(file._id)} alt={filename} className="preview-image" />
+                                                    previewUrls[file._id] ? (
+                                                    <img
+                                                        src={previewUrls[file._id]}
+                                                        alt={filename}
+                                                        className="preview-image"
+                                                    />
+                                                    ) : (
+                                                    <div>Loading...</div>
+                                                    )
                                                 ) : isPdf ? (
+                                                    previewUrls[file._id] ? (
                                                     <iframe
-                                                        src={`${previewFile(file._id)}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
+                                                        src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
                                                         className="preview-iframe"
                                                         title={filename}
                                                     />
+                                                    ) : (
+                                                    <div>Loading...</div>
+                                                    )
                                                 ) : (
-                                                    <div className="preview-icon">
-                                                        {getFileIcon(filename)}
-                                                    </div>
+                                                    <div className="preview-icon">{getFileIcon(filename)}</div>
                                                 )}
                                             </div>
+
 
                                             <div className="file-footer">
                                                 <div className="file-icon-small">
