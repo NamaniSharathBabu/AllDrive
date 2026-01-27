@@ -5,7 +5,7 @@ import cors from 'cors';
 import routes from '../routes/allRoutes.js';
 import logger from '../middleware/logger.js';
 import mongoose from 'mongoose';
-import cookieParser from 'cookie-parser';
+// import cookieParser from 'cookie-parser';
 
 dotenv.config();
 const app = express();
@@ -30,12 +30,15 @@ try {
 app.use(logger);
 //Allow requests from the frontend
 app.use(cors({
-    origin:true,
-    credentials:true
+  origin: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
+app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+// app.use(cookieParser());
 app.use('/api', routes);
 
 app.get('/', (_, res)=>{
