@@ -79,7 +79,7 @@ export async function deleteFile(req, res) {
     try {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
-        if(!fileId){
+        if (!fileId) {
             return res.status(404).json({ error: "File not found" });
         }
         await bucket.delete(fileId);
@@ -152,9 +152,9 @@ export async function downloadFile(req, res) {
         res.set('Cache-Control', 'private, max-age=86400'); // 1 day
 
         const downloadStream = bucket.openDownloadStream(fileId);
-        downloadStream.on('error', (err)=>{
+        downloadStream.on('error', (err) => {
             console.error("Error downloading file", err);
-            res.status(500).json({error:"Error downloading file"})
+            res.status(500).json({ error: "Error downloading file" })
         })
         downloadStream.pipe(res);
     } catch (err) {
@@ -162,14 +162,14 @@ export async function downloadFile(req, res) {
         res.status(500).json({ error: "Error downloading file" });
     }
 }
-export async function previewFile(req,res){
-  const fileId = new ObjectId(req.params.fileId);
+export async function previewFile(req, res) {
+    const fileId = new ObjectId(req.params.fileId);
     const bucket = await ensureBucket();
-  const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
+    const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
 
-  res.set('Content-Type', file[0].contentType);
-  res.set('Content-Disposition', 'inline'); // 👈 key line
+    res.set('Content-Type', file[0].contentType);
+    res.set('Content-Disposition', 'inline'); // 👈 key line
 
-  const readStream = bucket.openDownloadStream(fileId);
-  readStream.pipe(res);
+    const readStream = bucket.openDownloadStream(fileId);
+    readStream.pipe(res);
 }

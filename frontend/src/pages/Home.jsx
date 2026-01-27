@@ -40,12 +40,7 @@ const Home = () => {
         fetchFolders();
     }, [token, navigate, currentPath]); // Depend on currentPath (which comes from URL)
 
-    // const openFile = (fileId) => {
-    //     window.open(
-    //         `http://localhost:5000/api/files/${fileId}/view`,
-    //         '_blank'
-    //     );
-    // };
+
 
     const fetchFiles = async () => {
         try {
