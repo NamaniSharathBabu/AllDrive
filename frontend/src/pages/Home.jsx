@@ -20,6 +20,7 @@ const Home = () => {
     const [previewUrls, setPreviewUrls] = useState({});
     const observerRef = useRef(null);//only loads when files in viewport
     const fileRefs = useRef({}); //Intersection observer for infinite scroll
+    const fetchingRefs = useRef(new Set()); // Track currently fetching files to prevent duplicates
 
 
 
@@ -242,37 +243,42 @@ const Home = () => {
     }, []);
 
     useEffect(() => {
-        let active = true;
-        const createdUrls = {};
+        observerRef.current = new IntersectionObserver(async (entries) => {
+            for (const entrie of entries) {
+                if (!entrie.isIntersecting) continue;
+                const fileId = entrie.target.dataset.id;
 
-        const loadPreviews = async () => {
-            for (const file of files) {
-                if (!file?._id) continue;
+                // Skip if no ID, already fetching, or already has a url (though state usage here is tricky without deps, the ref is the main guard)
+                if (!fileId || fetchingRefs.current.has(fileId)) continue;
 
-                const filename = file.filename?.toLowerCase() || '';
-                const isImg = isImageFile(filename);
-                const isPdf = filename.endsWith('.pdf');
+                // Mark as fetching
+                fetchingRefs.current.add(fileId);
 
-                // ❌ skip non-previewable files
-                if (!isImg && !isPdf) continue;
-
-                // ❌ skip already loaded
-                if (previewUrls[file._id]) continue;
-
-                const url = await previewFile(file._id);
-                if (!active) break;
-
-                createdUrls[file._id] = url;
-
-                setPreviewUrls(prev => ({
-                    ...prev,
-                    [file._id]: url
-                }));
+                try {
+                    const previewUrl = await previewFile(fileId);
+                    setPreviewUrls((prev) => ({
+                        ...prev,
+                        [fileId]: previewUrl
+                    }))
+                }
+                catch (err) {
+                    console.log(err);
+                }
+                observerRef.current.unobserve(entrie.target);
             }
-        };
+        }, {
+            root: null,
+            rootMargin: '100px',
+            threshold: 0.1
+        });
 
-        loadPreviews();
-    }, [files]);
+        // Re-observe all existing elements when the observer is recreated (which is only once now)
+        Object.values(fileRefs.current).forEach(el => {
+            if (el) observerRef.current.observe(el);
+        });
+        return () => observerRef.current?.disconnect();
+    }, []); // Removed previewUrls dependency to prevent observer recreation
+
     async function previewFile(fileId) {
         const res = await fetch(`${API}/api/files/previewFile/${fileId}`, {
             headers: { Authorization: 'Bearer ' + token }
@@ -445,7 +451,15 @@ const Home = () => {
                                     const isPdf = filename?.toLowerCase().endsWith('.pdf');
 
                                     return (
-                                        <li key={fileId} className="file-card" onDoubleClick={() => handleOpenFile(file)}>
+                                        <li key={fileId} className="file-card" data-id={file._id}
+                                            ref={el => {
+                                                if (!el || !file?._id) return;
+                                                fileRefs.current[file._id] = el;
+                                                observerRef.current?.observe(el);
+                                            }}
+                                            onDoubleClick={() => handleOpenFile(file)}
+                                        >
+
                                             <div className="file-header">
                                                 <div className="file-icon-small">
                                                     {getFileIcon(filename)}
