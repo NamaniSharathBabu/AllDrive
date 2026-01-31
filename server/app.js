@@ -13,29 +13,17 @@ const PORT = process.env.PORT || 4000;
 const MONGO_URI = process.env.MONGO_URI;
 
 // Connect to MongoDB before starting the server
- if (!MONGO_URI) {
-    console.error('MONGO_URI is not defined');
-    process.exit(1);
-}
 
-try {
-   
-    await mongoose.connect(MONGO_URI);
-    console.log(`Connected to MongoDB`);
-} catch (err) {
-    console.error('Failed to connect to MongoDB:', err.message);
-    process.exit(1);
-}
 
 app.use(logger);
 //Allow requests from the frontend
 app.use(cors({
-  origin: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+    origin: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-app.use(cors());
+// app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // app.use(cookieParser());
@@ -45,9 +33,18 @@ app.get('/', (_, res)=>{
     res.send('AllDrive API is running')
 })
 app.get('/health', (_, res)=>{
-    res.status(200).send('Server is running')
+    res.status(200).send('OK')
 })
 
 app.listen(PORT, () => {
     console.log(`Server is running on port : ${PORT}`);
 });
+
+
+if (!MONGO_URI) {
+  console.error('MONGO_URI is not defined');
+} else {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('Connected to MongoDB'))
+    .catch(err => console.error('MongoDB connection failed:', err.message));
+}
