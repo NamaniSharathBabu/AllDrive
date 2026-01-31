@@ -42,7 +42,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api', routes);
 
 app.get('/', (_, res)=>{
-    res.send('API is running')
+    res.send('AllDrive API is running')
+})
+app.get('/health', (_, res)=>{
+    res.status(200).send('Server is running')
 })
 
 app.listen(PORT, () => {
