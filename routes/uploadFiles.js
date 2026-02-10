@@ -4,6 +4,7 @@ import { Readable } from "stream";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import foldermodel from "../models/folder.js";
+import crypto from "crypto";
 dotenv.config();
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -14,22 +15,25 @@ export const middlewareUpload = upload.array('files');
 let bucket = null;
 async function ensureBucket() {
     if (bucket) return bucket;
-    // const mongoURI = process.env.MONGO_URI;
-    // if (!mongoURI) {
-    //     throw new Error('MONGO_URI is not set');
-    // }
-    // client = new MongoClient(mongoURI);
-    // await client.connect();
+
     const db = mongoose.connection.db;
     bucket = new GridFSBucket(db, { bucketName: "uploads" });
     return bucket;
 }
-
+function deriveFileKey(userId, salt){
+    return crypto.scryptSync(
+        process.env.FILE_KEY_MASTER,
+        Buffer.concat([Buffer.from(String(userId)), salt]),//userId is Object in mongodb
+        32
+    )
+}
+if(!process.env.FILE_KEY_MASTER){
+    throw new Error("File key master not found");
+}
 export async function uploadFiles(req, res) {
     try {
+        
         const bucket = await ensureBucket();
-        // console.log(req.files);
-        // console.log(req.body)
         const files = req.files;
         if (!files || files.length === 0) {
             return res.status(400).send("No files uploaded");
@@ -37,9 +41,29 @@ export async function uploadFiles(req, res) {
         const uploadPromises = files.map(file => {
             return new Promise((resolve, reject) => {
                 const readableStream = new Readable();
-                readableStream.push(file.buffer);
+                const iv = crypto.randomBytes(12);
+                const salt = crypto.randomBytes(16);
+                const key = deriveFileKey(req.user.id, salt);
+                const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+                const encrypted = Buffer.concat([
+                    cipher.update(file.buffer),
+                    cipher.final()
+                ])
+                const authTag = cipher.getAuthTag();
+                const encryptedFile = Buffer.concat([
+                    encrypted,
+                    authTag
+                ])
+                readableStream.push(encryptedFile);
                 readableStream.push(null); // Indicate end of stream
-                const uploadStream = bucket.openUploadStream(file.originalname, { contentType: file.mimetype, metadata: { userId: req.user.id, path: req.body.path, isFolder: false } });
+                const uploadStream = bucket.openUploadStream(file.originalname, { 
+                    contentType: file.mimetype, 
+                    metadata: { 
+                        userId: req.user.id,
+                        path: req.body.path,
+                        salt:salt.toString('hex'),
+                        iv:iv.toString('hex')
+                    }});
                 readableStream.pipe(uploadStream);
                 uploadStream.on('error', (err) => {
                     reject(err);
@@ -64,7 +88,7 @@ export async function getFiles(req, res) {
     try {
         const bucket = await ensureBucket();
         // console.log(req.user);
-        const decoded = req.user;
+        // const decoded = req.user;
         const files = await bucket.find({ "metadata.userId": req.user.id, "metadata.path": req.query.path }).toArray();
         if (!files || files.length === 0) {
             return res.status(200).json([]);
@@ -143,33 +167,98 @@ export async function downloadFile(req, res) {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
         // console.log(fileId+" in uploadFIles downloadig file");
-        const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();//checking if metadatat is present
-        if (!file || file.length === 0) {
+        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();//checking if metadatat is present
+        if (!files || files.length === 0) {
             return res.status(404).json({ error: 'File not found' });//if metadata is not present then file is not found
         }
-        res.set('Content-Type', file[0].contentType);
-        res.set('Content-Disposition', `inline; filename="${file[0].filename}"`);
+        const file = files[0];
+        res.set('Content-Type', file.contentType);
+        res.set('Content-Disposition', `inline; filename="${file.filename}"`);
         res.set('Cache-Control', 'private, max-age=86400'); // 1 day
-
+        const salt = Buffer.from(file.metadata.salt, 'hex');
+        const iv = Buffer.from(file.metadata.iv, 'hex');
+        const key = deriveFileKey(req.user.id, salt);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
         const downloadStream = bucket.openDownloadStream(fileId);
-        downloadStream.on('error', (err) => {
-            console.error("Error downloading file", err);
-            res.status(500).json({ error: "Error downloading file" })
+        let tail = Buffer.alloc(0);
+
+        downloadStream.on('data', (chunk) => {
+            tail = Buffer.concat([tail, chunk]);
+            if(tail.length>16){
+                const data = tail.slice(0, tail.length-16);
+                tail = tail.slice(tail.length-16);
+                const decrypted = decipher.update(data);
+                res.write(decrypted);
+            }
         })
-        downloadStream.pipe(res);
-    } catch (err) {
-        console.error("Error downloading file:", err);
-        res.status(500).json({ error: "Error downloading file" });
-    }
+        downloadStream.on('end', ()=>{
+            try{
+                decipher.setAuthTag(tail);
+                const final = decipher.final();
+                if(final.length) res.write(final)
+                    res.end();
+            }catch(err){
+                console.log("Auth failed", err);
+                res.status(401).end();
+            }
+    })
+    downloadStream.on('error', (err) => {
+        console.error("Stream Error:", err);
+        res.status(500).end();
+    })
+}
+catch(err){
+    console.error("Error downloading file:", err);
+    res.status(500).end();
+}
 }
 export async function previewFile(req, res) {
+   try {
+
+    const dd = crypto.randomBytes(32).toString('hex');
+    console.log(dd);    
     const fileId = new ObjectId(req.params.fileId);
     const bucket = await ensureBucket();
-    const file = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
-
-    res.set('Content-Type', file[0].contentType);
+    const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
+    const file = files[0];
+    
+    res.set('Content-Type', file.contentType);
     res.set('Content-Disposition', 'inline'); // 👈 key line
 
+    const iv = Buffer.from(file.metadata.iv, 'hex');
+    const salt = Buffer.from(file.metadata.salt, 'hex');
+    const key = deriveFileKey(req.user.id, salt);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+
     const readStream = bucket.openDownloadStream(fileId);
-    readStream.pipe(res);
+    let tail = Buffer.alloc(0);
+    readStream.on('data', chunk =>{
+        tail = Buffer.concat([tail, chunk]);
+        if(tail.length>16){
+            const data = tail.slice(0, tail.length-16);
+            tail = tail.slice(tail.length-16);
+            const decrypted = decipher.update(data);
+            res.write(decrypted);
+        }
+    })
+    readStream.on('end', ()=>{
+        try{
+            decipher.setAuthTag(tail);
+            const final = decipher.final();
+            if(final.length) res.write(final);
+            res.end();
+        }catch(err){
+            console.log("Auth failed", err);
+            res.status(401).end();
+        }
+    })
+    readStream.on('error', (err) => {
+        console.error("Stream Error:", err);
+        res.status(500).end();
+    })
+}
+catch(err){
+    console.error("Error previewing file:", err);
+    res.status(500).end();
+}
 }

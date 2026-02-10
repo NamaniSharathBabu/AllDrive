@@ -84,11 +84,14 @@ const Home = () => {
                 setStatus('Files uploaded successfully!');
                 e.target.reset();
                 fetchFiles();
+                setTimeout(() => { setStatus(''); }, 2000);
             } else {
                 setStatus('Upload failed.');
+                setTimeout(() => { setStatus(''); }, 2000);
             }
         } catch (err) {
             setStatus('Error uploading files.');
+            setTimeout(() => { setStatus(''); }, 2000);
         } finally {
             setUploading(false);
         }
@@ -104,6 +107,7 @@ const Home = () => {
             if (res.ok) {
                 setStatus('File deleted Successfully!');
                 fetchFiles();
+                setTimeout(() => { setStatus(''); }, 2000);
             }
         }
         catch (err) {
@@ -157,6 +161,7 @@ const Home = () => {
             if (res.ok) {
                 setStatus('Folder deleted Successfully!');
                 fetchFolders();
+                setTimeout(() => { setStatus(''); }, 2000);
             }
         }
         catch (err) {
@@ -209,7 +214,7 @@ const Home = () => {
             }
 
             // If not in cache, download it
-            setStatus(`Downloading ${file.filename}...`);
+            setStatus(`Opening ${file.filename}...`);
             // console.log("Downloading file:", file.filename);
 
             const response = await fetch(requestUrl, {
@@ -228,12 +233,13 @@ const Home = () => {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
 
-            setStatus(''); // Clear status
+            setTimeout(() => { setStatus(''); }, 2000);
             window.open(url, '_blank');
 
         } catch (err) {
             console.error("Error opening file:", err);
             setStatus('Error opening file.');
+            setTimeout(() => { setStatus(''); }, 2000);
         }
     };
     useEffect(() => {
