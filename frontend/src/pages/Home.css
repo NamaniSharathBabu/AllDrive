@@ -277,12 +277,12 @@
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
     z-index: 100;
     overflow: hidden;
-    padding: 0.25rem;
-    margin-top: 0.25rem;
+    padding: 0.15rem;
+    margin-top: 0.15rem;
 }
 
 .menu-item {
-    padding: 0.5rem 0.75rem;
+    padding: 0.35rem 0.5rem;
     /* Smaller padding */
     cursor: pointer;
     transition: background 0.2s;

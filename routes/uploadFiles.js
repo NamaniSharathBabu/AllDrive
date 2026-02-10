@@ -20,19 +20,19 @@ async function ensureBucket() {
     bucket = new GridFSBucket(db, { bucketName: "uploads" });
     return bucket;
 }
-function deriveFileKey(userId, salt){
+function deriveFileKey(userId, salt) {
     return crypto.scryptSync(
         process.env.FILE_KEY_MASTER,
         Buffer.concat([Buffer.from(String(userId)), salt]),//userId is Object in mongodb
         32
     )
 }
-if(!process.env.FILE_KEY_MASTER){
+if (!process.env.FILE_KEY_MASTER) {
     throw new Error("File key master not found");
 }
 export async function uploadFiles(req, res) {
     try {
-        
+
         const bucket = await ensureBucket();
         const files = req.files;
         if (!files || files.length === 0) {
@@ -56,14 +56,15 @@ export async function uploadFiles(req, res) {
                 ])
                 readableStream.push(encryptedFile);
                 readableStream.push(null); // Indicate end of stream
-                const uploadStream = bucket.openUploadStream(file.originalname, { 
-                    contentType: file.mimetype, 
-                    metadata: { 
+                const uploadStream = bucket.openUploadStream(file.originalname, {
+                    contentType: file.mimetype,
+                    metadata: {
                         userId: req.user.id,
                         path: req.body.path,
-                        salt:salt.toString('hex'),
-                        iv:iv.toString('hex')
-                    }});
+                        salt: salt.toString('hex'),
+                        iv: iv.toString('hex')
+                    }
+                });
                 readableStream.pipe(uploadStream);
                 uploadStream.on('error', (err) => {
                     reject(err);
@@ -184,81 +185,78 @@ export async function downloadFile(req, res) {
 
         downloadStream.on('data', (chunk) => {
             tail = Buffer.concat([tail, chunk]);
-            if(tail.length>16){
-                const data = tail.slice(0, tail.length-16);
-                tail = tail.slice(tail.length-16);
+            if (tail.length > 16) {
+                const data = tail.slice(0, tail.length - 16);
+                tail = tail.slice(tail.length - 16);
                 const decrypted = decipher.update(data);
                 res.write(decrypted);
             }
         })
-        downloadStream.on('end', ()=>{
-            try{
+        downloadStream.on('end', () => {
+            try {
                 decipher.setAuthTag(tail);
                 const final = decipher.final();
                 if(final.length) res.write(final)
-                    res.end();
+                res.end();
             }catch(err){
                 console.log("Auth failed", err);
                 res.status(401).end();
             }
-    })
-    downloadStream.on('error', (err) => {
-        console.error("Stream Error:", err);
+        })
+        downloadStream.on('error', (err) => {
+            console.error("Stream Error:", err);
+            res.status(500).end();
+        })
+    }
+    catch (err) {
+        console.error("Error downloading file:", err);
         res.status(500).end();
-    })
-}
-catch(err){
-    console.error("Error downloading file:", err);
-    res.status(500).end();
-}
+    }
 }
 export async function previewFile(req, res) {
-   try {
+    try {   
+        const fileId = new ObjectId(req.params.fileId);
+        const bucket = await ensureBucket();
+        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
+        const file = files[0];
 
-    const dd = crypto.randomBytes(32).toString('hex');
-    console.log(dd);    
-    const fileId = new ObjectId(req.params.fileId);
-    const bucket = await ensureBucket();
-    const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
-    const file = files[0];
-    
-    res.set('Content-Type', file.contentType);
-    res.set('Content-Disposition', 'inline'); // 👈 key line
+        res.set('Content-Type', file.contentType);
+        res.set('Content-Disposition', 'inline'); // 👈 key line
 
-    const iv = Buffer.from(file.metadata.iv, 'hex');
-    const salt = Buffer.from(file.metadata.salt, 'hex');
-    const key = deriveFileKey(req.user.id, salt);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+        const iv = Buffer.from(file.metadata.iv, 'hex');
+        const salt = Buffer.from(file.metadata.salt, 'hex');
+        const key = deriveFileKey(req.user.id, salt);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
 
-    const readStream = bucket.openDownloadStream(fileId);
-    let tail = Buffer.alloc(0);
-    readStream.on('data', chunk =>{
-        tail = Buffer.concat([tail, chunk]);
-        if(tail.length>16){
-            const data = tail.slice(0, tail.length-16);
-            tail = tail.slice(tail.length-16);
-            const decrypted = decipher.update(data);
-            res.write(decrypted);
-        }
-    })
-    readStream.on('end', ()=>{
-        try{
-            decipher.setAuthTag(tail);
-            const final = decipher.final();
+        const readStream = bucket.openDownloadStream(fileId);
+        let tail = Buffer.alloc(0);
+        readStream.on('data', chunk => {
+            tail = Buffer.concat([tail, chunk]);
+            if (tail.length > 16) {
+                const data = tail.slice(0, tail.length - 16);
+                tail = tail.slice(tail.length - 16);
+                const decrypted = decipher.update(data);
+                res.write(decrypted);
+            }
+        })
+        readStream.on('end', () => {
+            try {
+                decipher.setAuthTag(tail);
+                const final = decipher.final();
             if(final.length) res.write(final);
-            res.end();
+                res.end();
         }catch(err){
-            console.log("Auth failed", err);
-            res.status(401).end();
-        }
-    })
-    readStream.on('error', (err) => {
-        console.error("Stream Error:", err);
-        res.status(500).end();
-    })
-}
+                console.log("Auth failed", err);
+                res.status(401).end();
+            }
+        })
+        readStream.on('error', (err) => {
+            console.error("Stream Error:", err);
+            res.status(500).end();
+        })
+    }
 catch(err){
-    console.error("Error previewing file:", err);
-    res.status(500).end();
-}
+        console.error("Error previewing file:", err);
+        res.status(500).end();
+    }
 }

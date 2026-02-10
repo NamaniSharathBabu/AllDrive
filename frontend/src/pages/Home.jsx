@@ -242,6 +242,43 @@ const Home = () => {
             setTimeout(() => { setStatus(''); }, 2000);
         }
     };
+
+    const handleDownload = async (file) => {
+        try {
+            const fileId = file._id;
+            const requestUrl = `${API}/api/files/content/${file._id}`; // use specific download route if available, or content route
+            // In your backend, you might have a specific download route that sets Content-Disposition: attachment
+
+            setStatus(`Downloading ${file.filename}...`);
+
+            const response = await fetch(requestUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            if (!response.ok) {
+                throw new Error('Download failed');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            setStatus('Download complete!');
+            setTimeout(() => { setStatus(''); }, 2000);
+
+        } catch (err) {
+            console.error("Error downloading file:", err);
+            setStatus('Error downloading file.');
+            setTimeout(() => { setStatus(''); }, 2000);
+        }
+    };
     useEffect(() => {
         return () => {  // cleanup after component unmounts(component is removed from the DOM)
             Object.values(previewUrls).forEach(URL.revokeObjectURL); // revokeObjectURL() releases the memory occupied by the object URL
@@ -486,6 +523,11 @@ const Home = () => {
                                                                 handleOpenFile(file);
                                                                 setActiveMenu(null);
                                                             }}>Open</div>
+                                                            <div className="menu-item" onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDownload(file);
+                                                                setActiveMenu(null);
+                                                            }}>Download</div>
                                                             <div className="menu-item delete-item" onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 handleDelete(file);
