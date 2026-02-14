@@ -46,7 +46,8 @@ const Home = () => {
     const fetchFiles = async () => {
         try {
             const res = await fetch(`${API}/api/files?path=${encodeURIComponent(currentPath || '')}`, {
-                headers: { 'Authorization': 'Bearer ' + token }
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include',
             });
 
             if (res.status === 401) {
@@ -77,7 +78,8 @@ const Home = () => {
             const res = await fetch(`${API}/api/upload`, {
                 method: 'POST',
                 body: formData,
-                headers: { 'Authorization': 'Bearer ' + token }
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include',
             });
 
             if (res.ok) {
@@ -102,6 +104,7 @@ const Home = () => {
             console.log(file);
             const res = await fetch(`${API}/api/files/${fileId}`, {
                 method: 'DELETE',
+                credentials: 'include',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
             if (res.ok) {
@@ -118,6 +121,7 @@ const Home = () => {
 
         await fetch(`${API}/api/folders`, {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Authorization': 'Bearer ' + token,
                 'Content-Type': 'application/json'
@@ -134,6 +138,7 @@ const Home = () => {
             console.log(currentPath);
             const res = await fetch(`${API}/api/folders?path=${encodeURIComponent(currentPath || '')}`,
                 {
+                    credentials: 'include',
                     headers: {
                         'Authorization': 'Bearer ' + token,
                         'Content-Type': 'application/json'
@@ -156,6 +161,7 @@ const Home = () => {
         try {
             const res = await fetch(`${API}/api/folders/${folderId}`, {
                 method: 'DELETE',
+                credentials: 'include',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
             if (res.ok) {
@@ -219,6 +225,7 @@ const Home = () => {
 
             const response = await fetch(requestUrl, {
                 method: 'GET',
+                credentials: 'include',
                 headers: { 'Authorization': 'Bearer ' + token }
             });
 
@@ -253,6 +260,7 @@ const Home = () => {
 
             const response = await fetch(requestUrl, {
                 method: 'GET',
+                credentials: 'include',
                 headers: { 'Authorization': 'Bearer ' + token }
             });
 
@@ -324,8 +332,12 @@ const Home = () => {
 
     async function previewFile(fileId) {
         const res = await fetch(`${API}/api/files/previewFile/${fileId}`, {
+            credentials: 'include',
             headers: { Authorization: 'Bearer ' + token }
         });
+
+
+
 
         if (!res.ok) {
             throw new Error('Preview fetch failed');
@@ -357,6 +369,58 @@ const Home = () => {
         const ext = filename?.split('.').pop().toLowerCase();
         return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
     };
+    const handleMakePublic = async (file) => {
+        console.log(file._id)
+        const res = await fetch(`${API}/api/files/makePublic/${file._id}`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Authorization: 'Bearer ' + token }
+        })
+        console.log(res)
+        if (!res.ok) {
+            throw new Error('Failed to make file public')
+        }
+        const data = await res.json();
+        console.log(data)
+        // Refresh to update UI state
+        fetchFiles();
+    }
+
+    const handleMakePrivate = async (file) => {
+        try {
+            const res = await fetch(`${API}/api/files/makePrivate/${file._id}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error || 'Failed to make file private');
+            }
+
+            setStatus('File made private successfully');
+            setTimeout(() => setStatus(''), 2000);
+            fetchFiles(); // Refresh list to update UI
+        } catch (err) {
+            console.error("Error making private:", err);
+            setStatus('Error: ' + err.message);
+            setTimeout(() => setStatus(''), 3000);
+        }
+    }
+
+    const handleCopyLink = (file) => {
+        if (!file.metadata?.filePublicId) return;
+        const link = `${API}/api/files/public/${file.metadata.filePublicId}`;
+        navigator.clipboard.writeText(link).then(() => {
+            setStatus('Link copied to clipboard!');
+            setTimeout(() => setStatus(''), 2000);
+        }, (err) => {
+            console.error('Could not copy text: ', err);
+            setStatus('Failed to copy link');
+            setTimeout(() => setStatus(''), 2000);
+        });
+    }
 
     // Close menu when clicking outside
     useEffect(() => {
@@ -523,6 +587,24 @@ const Home = () => {
                                                                 handleOpenFile(file);
                                                                 setActiveMenu(null);
                                                             }}>Open</div>
+                                                            <div className="menu-item" onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (file.metadata?.isPublic) {
+                                                                    handleMakePrivate(file);
+                                                                } else {
+                                                                    handleMakePublic(file);
+                                                                }
+                                                                setActiveMenu(null);
+                                                            }}>
+                                                                {file.metadata?.isPublic ? 'Make Private' : 'Make Public'}
+                                                            </div>
+                                                            {file.metadata?.isPublic && (
+                                                                <div className="menu-item" onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleCopyLink(file);
+                                                                    setActiveMenu(null);
+                                                                }}>Copy Link</div>
+                                                            )}
                                                             <div className="menu-item" onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 handleDownload(file);

@@ -2,26 +2,26 @@
 
 :root {
   --font-sans: 'Inter', sans-serif;
-  
+
   /* Primary HSL */
   --color-primary-hue: 250;
   --color-primary: hsl(var(--color-primary-hue), 70%, 60%);
   --color-primary-hover: hsl(var(--color-primary-hue), 70%, 50%);
   --color-primary-light: hsl(var(--color-primary-hue), 70%, 75%);
-  
+
   /* Backgrounds */
   --bg-dark: #0f172a;
   --bg-card: #1e293b;
   --bg-input: #334155;
-  
+
   /* Text */
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
-  
+
   /* Accents */
   --accent-success: #10b981;
   --accent-error: #ef4444;
-  
+
   /* Glassmorphism */
   --glass-bg: rgba(30, 41, 59, 0.7);
   --glass-border: rgba(255, 255, 255, 0.1);
