@@ -6,7 +6,7 @@ import cors from 'cors';
 import routes from '../routes/allRoutes.js';
 import logger from '../middleware/logger.js';
 import mongoose from 'mongoose';
-// import cookieParser from 'cookie-parser';
+// import cookieParser from 'cookie-parser'`;
 import session from "express-session";
 import MongoStore from "connect-mongo";
 dotenv.config();
@@ -32,9 +32,9 @@ app.use(session({
         mongoUrl: process.env.MONGO_URI
     }),
     cookie: {
-        secure: false,
+        secure: true,
         httpOnly: true,
-        sameSite: "lax"
+        sameSite: "none"
     }
 }));
 
