@@ -78,22 +78,22 @@ export async function deriveUserMasterKey(password, salt) {
 
 export async function uploadFiles(req, res) {
     try {
-
         const bucket = await ensureBucket();
         const files = req.files;
         if (!files || files.length === 0) {
             return res.status(400).send("No files uploaded");
         }
+
+        if (!req.session || !req.session.userMasterKey) {
+            return res.status(401).json({ error: "Session expired. Please Login again to upload files" });
+        }
+        const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
+
         const uploadPromises = files.map(file => {
             return new Promise((resolve, reject) => {
                 const readableStream = new Readable();
                 const iv = crypto.randomBytes(12);
-                const salt = crypto.randomBytes(16);
-                // const key = deriveFileKey(req.user.id, salt);
-                if (!req.session.userMasterKey) {
-                    return res.status(401).json({ error: "Session expired. Please Login again to view files" });
-                }
-                const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
+
                 const fileKey = crypto.randomBytes(32);
                 const cipher = crypto.createCipheriv('aes-256-gcm', fileKey, iv);
                 const encrypted = Buffer.concat([

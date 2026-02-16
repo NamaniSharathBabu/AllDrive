@@ -24,6 +24,12 @@ app.use(cors({
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
+// Trust the first proxy (Vercel/Heroku)
+app.set('trust proxy', 1);
+
+const isProduction = process.env.NODE_ENV === 'production';
+
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
@@ -32,9 +38,9 @@ app.use(session({
         mongoUrl: process.env.MONGO_URI
     }),
     cookie: {
-        secure: true,
+        secure: isProduction, // true in production, false locally
         httpOnly: true,
-        sameSite: "none"
+        sameSite: isProduction ? "none" : "lax" // "none" for cross-site (prod), "lax" for local
     }
 }));
 
