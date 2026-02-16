@@ -193,7 +193,7 @@ export async function createFolder(req, res) {
 }
 export async function getFolders(req, res) {
     try {
-        console.log(req.query.path);
+        // console.log(req.query.path);
         const folders = await foldermodel.find({ "metadata.userId": req.user.id, "metadata.path": req.query.path })
         if (!folders || folders.length === 0) {
             return res.status(200).json([]);
@@ -376,7 +376,7 @@ export async function makePublic(req, res) {
     try {
         const db = mongoose.connection.db;
         // console.log('went into makepublic')
-        console.log(req.user.id)
+        // console.log(req.user.id)
         const fileId = new ObjectId(req.params.fileId);
         const bucket = await ensureBucket();
         const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
@@ -387,9 +387,9 @@ export async function makePublic(req, res) {
             return res.status(401).json({ error: 'Session expired. Please login again to make file public.' });
         }
         const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
-        console.log(USER_MASTER_KEY)
+        // console.log(USER_MASTER_KEY)
         const file = files[0];
-        console.log(file)
+        // console.log(file)
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
             Buffer.from(file.metadata.encryptedFileKey, 'hex'),
@@ -397,6 +397,11 @@ export async function makePublic(req, res) {
             Buffer.from(file.metadata.keyIv, 'hex'),
             Buffer.from(file.metadata.keyAuthTag, 'hex')
         )
+        const time = req.body.duration.split('-')
+        const days = parseInt(time[0])
+        const hrs = parseInt(time[1])
+        const mins = parseInt(time[2])
+        const duration = days * 24 * 60 * 60 + hrs * 60 * 60 + mins * 60;
         if (!process.env.SERVER_MASTER_KEY) {
             return res.status(500).json({ error: 'Server master key not found' });
         }
@@ -411,7 +416,8 @@ export async function makePublic(req, res) {
                 "metadata.encryptedFileKey": encryptedFile.encryptedKey.toString('hex'),
                 "metadata.keyIv": encryptedFile.iv.toString('hex'),
                 "metadata.keyAuthTag": encryptedFile.authTag.toString('hex'),
-                "metadata.filePublicId": publicFileId
+                "metadata.filePublicId": publicFileId,
+                "metadata.publicExpiresAt": new Date(Date.now() + duration*1000)
             }
         });
         if (!updatedFile.modifiedCount) {
@@ -426,14 +432,40 @@ export async function makePublic(req, res) {
 }
 export async function publicFile(req, res) {
     try {
-        console.log("came into public file" + req.params.filePublicId)
+        // console.log("came into public file" + req.params.filePublicId)
         const filePublicId = req.params.filePublicId;
+        const db = mongoose.connection.db;
         const bucket = await ensureBucket();
         const files = await bucket.find({ "metadata.filePublicId": filePublicId, "metadata.isPublic": true }).toArray();
         if (!files || files.length === 0) {
             return res.status(404).json({ error: 'File not found' });
         }
         const file = files[0];
+        if(file.metadata.publicExpiresAt < Date.now()){
+            const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
+            const fileKey = decryptKey(
+                Buffer.from(file.metadata.encryptedFileKey, 'hex'),
+                SERVER_MASTER_KEY,
+                Buffer.from(file.metadata.keyIv, 'hex'),
+                Buffer.from(file.metadata.keyAuthTag, 'hex')
+            )
+            const encryptedFile = encryptKey(fileKey, Buffer.from(req.session.userMasterKey, 'hex'));
+
+            await db.collection('uploads.files').updateOne({
+                _id: file._id,
+                "metadata.userId": file.metadata.userId
+            }, {
+                $set: {
+                    "metadata.isPublic": false,
+                    "metadata.filePublicId": null,
+                    "metadata.publicExpiresAt": null,
+                    "metadata.encryptedFileKey": encryptedFile.encryptedKey.toString('hex'),
+                    "metadata.keyIv": encryptedFile.iv.toString('hex'),
+                    "metadata.keyAuthTag": encryptedFile.authTag.toString('hex')
+                }
+            });
+            return res.status(404).json({ error: 'File not found' });
+        }
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
             Buffer.from(file.metadata.encryptedFileKey, 'hex'),
@@ -470,14 +502,14 @@ export async function publicFile(req, res) {
         })
     }
     catch (err) {
-        console.error("Error making file public:", err);
-        res.status(500).json({ error: "Error making file public: " + err.message })
+        console.error("Error showing public file:", err);
+        res.status(500).json({ error: "Error showing public file: " + err.message })
     }
 }
 
 export async function makePrivate(req, res) {
     try {
-        console.log("came into make private" + req.params.fileId)
+        // console.log("came into make private" + req.params.fileId)
         const fileId = new ObjectId(req.params.fileId);
         const db = mongoose.connection.db;
         const bucket = await ensureBucket();
@@ -502,7 +534,8 @@ export async function makePrivate(req, res) {
                 "metadata.encryptedFileKey": encryptedFileKey.encryptedKey.toString('hex'),
                 "metadata.keyIv": encryptedFileKey.iv.toString('hex'),
                 "metadata.keyAuthTag": encryptedFileKey.authTag.toString('hex'),
-                "metadata.filePublicId": null
+                "metadata.filePublicId": null,
+                "metadata.publicExpiresAt": null
             }
         });
         if (!updatedFile.modifiedCount) {

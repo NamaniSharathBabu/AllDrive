@@ -21,6 +21,12 @@ const Home = () => {
     const observerRef = useRef(null);//only loads when files in viewport
     const fileRefs = useRef({}); //Intersection observer for infinite scroll
     const fetchingRefs = useRef(new Set()); // Track currently fetching files to prevent duplicates
+    const [showDurationModal, setShowDurationModal] = useState(false);
+    const [selectedFileForPublic, setSelectedFileForPublic] = useState(null);
+    const [isPermanent, setIsPermanent] = useState(false);
+    const [durationDays, setDurationDays] = useState(1);
+    const [durationHours, setDurationHours] = useState(0);
+    const [durationMinutes, setDurationMinutes] = useState(0);
 
 
 
@@ -369,21 +375,63 @@ const Home = () => {
         const ext = filename?.split('.').pop().toLowerCase();
         return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
     };
-    const handleMakePublic = async (file) => {
-        console.log(file._id)
-        const res = await fetch(`${API}/api/files/makePublic/${file._id}`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { Authorization: 'Bearer ' + token }
-        })
-        console.log(res)
-        if (!res.ok) {
-            throw new Error('Failed to make file public')
+    const initiateMakePublic = (file) => {
+        setSelectedFileForPublic(file);
+        setIsPermanent(false);
+        setDurationDays(1);
+        setDurationHours(0);
+        setDurationMinutes(0);
+        setShowDurationModal(true);
+    };
+
+    const handleMakePublic = async () => {
+        if (!selectedFileForPublic) return;
+
+        let finalDuration;
+        if (isPermanent) {
+            finalDuration = 'permanent';
+        } else {
+            const d = parseInt(durationDays) || 0;
+            const h = parseInt(durationHours) || 0;
+            const m = parseInt(durationMinutes) || 0;
+
+            if (d === 0 && h === 0 && m === 0) {
+                setStatus('Please set a duration greater than 0');
+                setTimeout(() => setStatus(''), 3000);
+                return;
+            }
+
+            finalDuration = `${d}-${h}-${m}`;
         }
-        const data = await res.json();
-        console.log(data)
-        // Refresh to update UI state
-        fetchFiles();
+
+        try {
+            const res = await fetch(`${API}/api/files/makePublic/${selectedFileForPublic._id}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ duration: finalDuration })
+            });
+
+            if (!res.ok) {
+                throw new Error('Failed to make file public');
+            }
+
+            const data = await res.json();
+            console.log(data);
+
+            setShowDurationModal(false);
+            setSelectedFileForPublic(null);
+
+            // Refresh to update UI state
+            fetchFiles();
+        } catch (err) {
+            console.error("Error making file public:", err);
+            setStatus('Error making file public');
+            setTimeout(() => setStatus(''), 3000);
+        }
     }
 
     const handleMakePrivate = async (file) => {
@@ -529,6 +577,85 @@ const Home = () => {
                         </div>
                     )}
 
+                    {showDurationModal && (
+                        <div className="modal-overlay">
+                            <div className="modal-box">
+                                <h3>Set Public Link Duration</h3>
+                                <p className="modal-description">Choose how long this link should remain active.</p>
+
+                                <div className="duration-inputs-container">
+                                    <label className="checkbox-container mb-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={isPermanent}
+                                            onChange={(e) => setIsPermanent(e.target.checked)}
+                                        />
+                                        <span className="checkmark"></span>
+                                        <span className="checkbox-label">Permanent (No Expiration)</span>
+                                    </label>
+
+                                    {!isPermanent && (
+                                        <div className="time-inputs">
+                                            <div className="time-field">
+                                                <label>Days</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={durationDays}
+                                                    onChange={(e) => setDurationDays(e.target.value)}
+                                                    className="input-field"
+                                                />
+                                            </div>
+                                            <div className="time-field">
+                                                <label>Hours</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="23"
+                                                    value={durationHours}
+                                                    onChange={(e) => {
+                                                        let val = parseInt(e.target.value);
+                                                        if (isNaN(val)) val = 0; // or allow empty string if desired, but 0 is safe
+                                                        if (val < 0) val = 0;
+                                                        if (val > 23) val = 23;
+                                                        setDurationHours(val);
+                                                    }}
+                                                    className="input-field"
+                                                />
+                                            </div>
+                                            <div className="time-field">
+                                                <label>Minutes</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="59"
+                                                    value={durationMinutes}
+                                                    onChange={(e) => {
+                                                        let val = parseInt(e.target.value);
+                                                        if (isNaN(val)) val = 0;
+                                                        if (val < 0) val = 0;
+                                                        if (val > 59) val = 59;
+                                                        setDurationMinutes(val);
+                                                    }}
+                                                    className="input-field"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="modal-actions">
+                                    <button className="btn btn-secondary" onClick={() => {
+                                        setShowDurationModal(false);
+                                        setSelectedFileForPublic(null);
+                                    }}>Cancel</button>
+
+                                    <button className="btn btn-primary" onClick={handleMakePublic}>Confirm</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
 
                     {/* Files Section */}
                     <div className="card glass files-section">
@@ -592,7 +719,7 @@ const Home = () => {
                                                                 if (file.metadata?.isPublic) {
                                                                     handleMakePrivate(file);
                                                                 } else {
-                                                                    handleMakePublic(file);
+                                                                    initiateMakePublic(file);
                                                                 }
                                                                 setActiveMenu(null);
                                                             }}>
