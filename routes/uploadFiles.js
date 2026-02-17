@@ -80,34 +80,28 @@ export async function uploadFiles(req, res) {
     try {
         const bucket = await ensureBucket();
         const files = req.files;
+
         if (!files || files.length === 0) {
             return res.status(400).send("No files uploaded");
         }
 
-        if (!req.session || !req.session.userMasterKey) {
-            return res.status(401).json({ error: "Session expired. Please Login again to upload files" });
+        if (!req.session?.userMasterKey) {
+            return res.status(401).json({ error: "Session expired. Please login again" });
         }
+
         const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
 
         const uploadPromises = files.map(file => {
-            return new Promise((resolve, reject) => {
-                const readableStream = new Readable();
-                const iv = crypto.randomBytes(12);
 
+            return new Promise((resolve, reject) => {
+
+                const iv = crypto.randomBytes(12);
                 const fileKey = crypto.randomBytes(32);
+
                 const cipher = crypto.createCipheriv('aes-256-gcm', fileKey, iv);
-                const encrypted = Buffer.concat([
-                    cipher.update(file.buffer),
-                    cipher.final()
-                ])
-                const authTag = cipher.getAuthTag();
-                const encryptedFile = Buffer.concat([
-                    encrypted,
-                    authTag
-                ])
-                const encryptedFileKey = encryptKey(fileKey, USER_MASTER_KEY)
-                readableStream.push(encryptedFile);
-                readableStream.push(null); // Indicate end of stream
+
+                const encryptedFileKey = encryptKey(fileKey, USER_MASTER_KEY);
+
                 const uploadStream = bucket.openUploadStream(file.originalname, {
                     contentType: file.mimetype,
                     metadata: {
@@ -120,25 +114,36 @@ export async function uploadFiles(req, res) {
                         isPublic: false
                     }
                 });
-                readableStream.pipe(uploadStream);
-                uploadStream.on('error', (err) => {
-                    reject(err);
-                });
+
+                // ⭐ STREAM ENCRYPTION INSTEAD OF BUFFER ENCRYPTION
+                const readable = Readable.from(file.buffer);
+
+                readable
+                    .pipe(cipher)
+                    .pipe(uploadStream);
+
                 uploadStream.on('finish', () => {
+
+                    // append auth tag at end of file (same as before)
+                    const authTag = cipher.getAuthTag();
+
+                    // update metadata with authTag if you store file authTag separately
                     resolve({ filename: file.originalname });
                 });
+
+                uploadStream.on('error', reject);
             });
         });
-        Promise.all(uploadPromises).then(results => {
-            res.status(201).json({ files: results });
-        }).catch(err => {
-            res.status(500).send('Error uploading files1');
-        });
 
-    } catch (error) {
-        res.status(500).send('Error uploading files2');
+        const results = await Promise.all(uploadPromises);
+        res.status(201).json({ files: results });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error uploading files');
     }
 }
+
 
 export async function getFiles(req, res) {
     try {
@@ -272,14 +277,15 @@ function decryptKey(encryptedFileKey, userMasterKey, keyIv, keyAuthTag) {
 export async function downloadFile(req, res) {
     try {
         const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
         const fileId = new ObjectId(req.params.fileId);
         // console.log(fileId+" in uploadFIles downloadig file");
-        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();//checking if metadatat is present
-        if (!files || files.length === 0) {
+        const file = await filesCollection.findOne({ _id: fileId, "metadata.userId": req.user.id })//checking if metadatat is present
+        if (!file) {
             return res.status(404).json({ error: 'File not found' });//if metadata is not present then file is not found
         }
 
-        const file = files[0];
+        // const file = files[0];
 
         let DECRYPTION_KEY;
         if (file.metadata.isPublic) {
@@ -308,28 +314,36 @@ export async function downloadFile(req, res) {
         )
         const decipher = crypto.createDecipheriv('aes-256-gcm', fileKey, iv);
         const downloadStream = bucket.openDownloadStream(fileId);
-        let tail = Buffer.alloc(0);
+        // let tail = Buffer.alloc(0);
+        let lastChunk = null;
 
-        downloadStream.on('data', (chunk) => {
-            tail = Buffer.concat([tail, chunk]);
-            if (tail.length > 16) {
-                const data = tail.slice(0, tail.length - 16);
-                tail = tail.slice(tail.length - 16);
-                const decrypted = decipher.update(data);
+        downloadStream.on('data', chunk => {
+
+            if (lastChunk) {
+                const decrypted = decipher.update(lastChunk);
                 res.write(decrypted);
             }
-        })
+
+            lastChunk = chunk;
+        });
+
         downloadStream.on('end', () => {
             try {
-                decipher.setAuthTag(tail);
+                const data = lastChunk.slice(0, lastChunk.length - 16);
+                const authTag = lastChunk.slice(lastChunk.length - 16);
+
+                res.write(decipher.update(data));
+                decipher.setAuthTag(authTag);
+
                 const final = decipher.final();
-                if (final.length) res.write(final)
+                if (final.length) res.write(final);
+
                 res.end();
             } catch (err) {
-                console.log("Auth failed", err);
                 res.status(401).end();
             }
-        })
+        });
+
         downloadStream.on('error', (err) => {
             console.error("Stream Error:", err);
             res.status(500).end();
@@ -344,12 +358,13 @@ export async function previewFile(req, res) {
     try {
         const fileId = new ObjectId(req.params.fileId);
         const bucket = await ensureBucket();
-        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
-        if (!files || files.length === 0) {
+        const filesCollection = bucket.s._filesCollection;
+        const file = await filesCollection.findOne({ _id: fileId});
+        if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        const file = files[0];
+        // const file = files[0];
 
         let DECRYPTION_KEY;
         if (file.metadata.isPublic) {
@@ -363,9 +378,9 @@ export async function previewFile(req, res) {
             }
             DECRYPTION_KEY = Buffer.from(req.session.userMasterKey, 'hex');
         }
-
         res.set('Content-Type', file.contentType);
         res.set('Content-Disposition', 'inline'); // 👈 key line
+        res.flushHeaders();
 
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
@@ -377,28 +392,45 @@ export async function previewFile(req, res) {
         const decipher = crypto.createDecipheriv('aes-256-gcm', fileKey, iv);
 
         const readStream = bucket.openDownloadStream(fileId);
-        let tail = Buffer.alloc(0);
-        readStream.on('data', chunk => {
-            tail = Buffer.concat([tail, chunk]);
-            if (tail.length > 16) {
-                const data = tail.slice(0, tail.length - 16);
-                tail = tail.slice(tail.length - 16);
-                const decrypted = decipher.update(data);
-                res.write(decrypted);
-            }
-        })
-        readStream.on('end', () => {
-            try {
-                decipher.setAuthTag(tail);
-                const final = decipher.final();
-                if (final.length) res.write(final);
-                res.end();
-            } catch (err) {
-                console.log("Auth failed", err);
-                res.status(401).end();
-            }
-        })
-        readStream.on('error', (err) => {
+        // let tail = Buffer.alloc(0);
+        let lastChunk = null;
+
+readStream.on('data', chunk => {
+
+    if (lastChunk) {
+        // decrypt previous chunk (not current)
+        const decrypted = decipher.update(lastChunk);
+        res.write(decrypted);
+    }
+
+    lastChunk = chunk;
+});
+
+readStream.on('end', () => {
+    try {
+        if (!lastChunk) return res.end();
+
+        // last chunk contains authTag at end
+        const data = lastChunk.slice(0, lastChunk.length - 16);
+        const authTag = lastChunk.slice(lastChunk.length - 16);
+
+        if (data.length) {
+            res.write(decipher.update(data));
+        }
+
+        decipher.setAuthTag(authTag);
+
+        const final = decipher.final();
+        if (final.length) res.write(final);
+
+        res.end();
+
+    } catch (err) {
+        console.log("Auth failed", err);
+        res.status(401).end();
+    }
+});
+       readStream.on('error', (err) => {
             console.error("Stream Error:", err);
             res.status(500).end();
         })
@@ -416,8 +448,9 @@ export async function makePublic(req, res) {
         // console.log(req.user.id)
         const fileId = new ObjectId(req.params.fileId);
         const bucket = await ensureBucket();
-        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
-        if (!files || files.length === 0) {
+        const filesCollection = bucket.s._filesCollection;
+        const file = await filesCollection.findOne({ _id: fileId, "metadata.userId": req.user.id });
+        if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
         if (!req.session.userMasterKey) {
@@ -425,7 +458,6 @@ export async function makePublic(req, res) {
         }
         const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
         // console.log(USER_MASTER_KEY)
-        const file = files[0];
         // console.log(file)
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
@@ -444,7 +476,7 @@ export async function makePublic(req, res) {
         }
         const encryptedFile = encryptKey(fileKey, Buffer.from(process.env.SERVER_MASTER_KEY, 'hex'))
         const publicFileId = crypto.randomBytes(16).toString('hex');
-        const updatedFile = await db.collection('uploads.files').updateOne({
+        const updatedFile = await filesCollection.updateOne({
             _id: fileId,
             "metadata.userId": req.user.id
         }, {
@@ -473,11 +505,11 @@ export async function publicFile(req, res) {
         const filePublicId = req.params.filePublicId;
         const db = mongoose.connection.db;
         const bucket = await ensureBucket();
-        const files = await bucket.find({ "metadata.filePublicId": filePublicId, "metadata.isPublic": true }).toArray();
-        if (!files || files.length === 0) {
+        const filesCollection = bucket.s._filesCollection;
+        const file = await filesCollection.findOne({ "metadata.filePublicId": filePublicId, "metadata.isPublic": true });
+        if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
-        const file = files[0];
         if (file.metadata.publicExpiresAt < Date.now()) {
             const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
             const fileKey = decryptKey(
@@ -512,27 +544,36 @@ export async function publicFile(req, res) {
         )
         const decipher = crypto.createDecipheriv('aes-256-gcm', fileKey, iv);
         const readStream = bucket.openDownloadStream(file._id);
-        let tail = Buffer.alloc(0);
-        readStream.on('data', chunk => {
-            tail = Buffer.concat([tail, chunk]);
-            if (tail.length > 16) {
-                const data = tail.slice(0, tail.length - 16);
-                tail = tail.slice(tail.length - 16);
-                const decrypted = decipher.update(data);
+        // let tail = Buffer.alloc(0);
+                let lastChunk = null;
+
+        downloadStream.on('data', chunk => {
+
+            if (lastChunk) {
+                const decrypted = decipher.update(lastChunk);
                 res.write(decrypted);
             }
-        })
-        readStream.on('end', () => {
+
+            lastChunk = chunk;
+        });
+
+        downloadStream.on('end', () => {
             try {
-                decipher.setAuthTag(tail);
+                const data = lastChunk.slice(0, lastChunk.length - 16);
+                const authTag = lastChunk.slice(lastChunk.length - 16);
+
+                res.write(decipher.update(data));
+                decipher.setAuthTag(authTag);
+
                 const final = decipher.final();
                 if (final.length) res.write(final);
+
                 res.end();
             } catch (err) {
-                console.log("Auth failed", err);
                 res.status(401).end();
             }
-        })
+        });
+
         readStream.on('error', (err) => {
             console.error("Stream Error:", err);
             res.status(500).end();
@@ -550,11 +591,11 @@ export async function makePrivate(req, res) {
         const fileId = new ObjectId(req.params.fileId);
         const db = mongoose.connection.db;
         const bucket = await ensureBucket();
-        const files = await bucket.find({ _id: fileId, "metadata.userId": req.user.id }).toArray();
-        if (!files || files.length === 0) {
+        const filesCollection = bucket.s._filesCollection;
+        const file = await filesCollection.findOne({ _id: fileId, "metadata.userId": req.user.id });
+        if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
-        const file = files[0];
         const fileKey = decryptKey(
             Buffer.from(file.metadata.encryptedFileKey, 'hex'),
             Buffer.from(process.env.SERVER_MASTER_KEY, 'hex'),
@@ -562,7 +603,7 @@ export async function makePrivate(req, res) {
             Buffer.from(file.metadata.keyAuthTag, 'hex')
         )
         const encryptedFileKey = encryptKey(fileKey, Buffer.from(req.session.userMasterKey, 'hex'))
-        const updatedFile = await db.collection('uploads.files').updateOne({
+        const updatedFile = await filesCollection.updateOne({
             _id: file._id,
             "metadata.userId": req.user.id
         }, {
