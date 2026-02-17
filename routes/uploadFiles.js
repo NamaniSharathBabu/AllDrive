@@ -142,18 +142,55 @@ export async function uploadFiles(req, res) {
 
 export async function getFiles(req, res) {
     try {
-        const bucket = await ensureBucket();
-        // console.log(req.user);
-        // const decoded = req.user;
-        const files = await bucket.find({ "metadata.userId": req.user.id, "metadata.path": req.query.path }).toArray();
-        if (!files || files.length === 0) {
-            return res.status(200).json([]);
+        if (!req.session?.userMasterKey) {
+            return res.status(401).json({ error: "User master key missing" });
         }
-        res.json(files);
+
+        const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection; // need this bcz we are using bucket(it doesn't have updateMany)
+        const files = await filesCollection.find({
+            "metadata.userId": req.user.id,
+            "metadata.path": req.query.path,
+            "metadata.isPublic": true,
+            "metadata.publicExpiresAt": { $lt: new Date() }
+        }).toArray();
+        const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
+        for (const file of files) {
+            const fileKey = decryptKey(
+                Buffer.from(file.metadata.encryptedFileKey, 'hex'),
+                SERVER_MASTER_KEY,
+                Buffer.from(file.metadata.keyIv, 'hex'),
+                Buffer.from(file.metadata.keyAuthTag, 'hex')
+            );
+            const encryptedFileKey = encryptKey(fileKey, Buffer.from(req.session.userMasterKey, 'hex'));
+            await filesCollection.updateOne(
+                { _id: file._id },
+                {
+                    $set: {
+                        "metadata.isPublic": false,
+                        "metadata.publicExpiresAt": null,
+                        "metadata.publicUrl": null,
+                        "metadata.encryptedFileKey": encryptedFileKey.encryptedKey.toString('hex'),
+                        "metadata.keyIv": encryptedFileKey.iv.toString('hex'),
+                        "metadata.keyAuthTag": encryptedFileKey.authTag.toString('hex')
+                    }
+                }
+            );
+        }
+
+
+        // ✅ Step 2: fetch files normally
+        const files2 = await filesCollection.find({
+            "metadata.userId": req.user.id,
+            "metadata.path": req.query.path,
+        }).toArray();
+        return res.json(files2 || []);
     } catch (error) {
         res.status(500).json({ error: "Error retrieving files" });
     }
 }
+
+
 
 export async function deleteFile(req, res) {
     try {
@@ -417,7 +454,7 @@ export async function makePublic(req, res) {
                 "metadata.keyIv": encryptedFile.iv.toString('hex'),
                 "metadata.keyAuthTag": encryptedFile.authTag.toString('hex'),
                 "metadata.filePublicId": publicFileId,
-                "metadata.publicExpiresAt": new Date(Date.now() + duration*1000)
+                "metadata.publicExpiresAt": new Date(Date.now() + duration * 1000)
             }
         });
         if (!updatedFile.modifiedCount) {
@@ -441,7 +478,7 @@ export async function publicFile(req, res) {
             return res.status(404).json({ error: 'File not found' });
         }
         const file = files[0];
-        if(file.metadata.publicExpiresAt < Date.now()){
+        if (file.metadata.publicExpiresAt < Date.now()) {
             const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
             const fileKey = decryptKey(
                 Buffer.from(file.metadata.encryptedFileKey, 'hex'),

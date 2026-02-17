@@ -1,5 +1,5 @@
 import dotenv from 'dotenv'; // Server restart trigger
-
+import { createFileIndexes } from '../utils/fileIndexes.js';
 
 import express from 'express';
 import cors from 'cors';
@@ -69,4 +69,7 @@ if (!MONGO_URI) {
     mongoose.connect(MONGO_URI)
         .then(() => console.log('Connected to MongoDB'))
         .catch(err => console.error('MongoDB connection failed:', err.message));
+    mongoose.connection.once('open', async () => {
+        await createFileIndexes();
+    })
 }
