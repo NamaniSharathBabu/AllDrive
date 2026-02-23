@@ -359,87 +359,79 @@ export async function previewFile(req, res) {
         const fileId = new ObjectId(req.params.fileId);
         const bucket = await ensureBucket();
         const filesCollection = bucket.s._filesCollection;
-        const file = await filesCollection.findOne({ _id: fileId});
+        // ⭐ Fetch only required metadata (faster)
+        const file = await filesCollection.findOne(
+            { _id: fileId },
+            {
+                projection: {
+                    contentType: 1,
+                    metadata: 1,
+                    filename: 1
+                }
+            }
+        );
         if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
-
-        // const file = files[0];
-
         let DECRYPTION_KEY;
         if (file.metadata.isPublic) {
-            if (!process.env.SERVER_MASTER_KEY) {
-                return res.status(500).json({ error: 'Server master key not found' });
-            }
             DECRYPTION_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
         } else {
-            if (!req.session || !req.session.userMasterKey) {
-                return res.status(401).json({ error: 'Session expired. Please login again to preview files.' });
+            if (!req.session?.userMasterKey) {
+                return res.status(401).json({ error: 'Session expired' });
             }
             DECRYPTION_KEY = Buffer.from(req.session.userMasterKey, 'hex');
         }
-        res.set('Content-Type', file.contentType);
-        res.set('Content-Disposition', 'inline'); // 👈 key line
+        // ⭐ Important headers for fast preview
+        res.setHeader('Content-Type', file.contentType);
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
         res.flushHeaders();
-
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
             Buffer.from(file.metadata.encryptedFileKey, 'hex'),
             DECRYPTION_KEY,
             Buffer.from(file.metadata.keyIv, 'hex'),
             Buffer.from(file.metadata.keyAuthTag, 'hex')
-        )
+        );
         const decipher = crypto.createDecipheriv('aes-256-gcm', fileKey, iv);
-
         const readStream = bucket.openDownloadStream(fileId);
-        // let tail = Buffer.alloc(0);
         let lastChunk = null;
-
-readStream.on('data', chunk => {
-
-    if (lastChunk) {
-        // decrypt previous chunk (not current)
-        const decrypted = decipher.update(lastChunk);
-        res.write(decrypted);
-    }
-
-    lastChunk = chunk;
-});
-
-readStream.on('end', () => {
-    try {
-        if (!lastChunk) return res.end();
-
-        // last chunk contains authTag at end
-        const data = lastChunk.slice(0, lastChunk.length - 16);
-        const authTag = lastChunk.slice(lastChunk.length - 16);
-
-        if (data.length) {
-            res.write(decipher.update(data));
-        }
-
-        decipher.setAuthTag(authTag);
-
-        const final = decipher.final();
-        if (final.length) res.write(final);
-
-        res.end();
-
-    } catch (err) {
-        console.log("Auth failed", err);
-        res.status(401).end();
-    }
-});
-       readStream.on('error', (err) => {
+        readStream.on('data', chunk => {
+            if (lastChunk) {
+                // ⭐ immediately send decrypted chunk
+                res.write(decipher.update(lastChunk));
+            }
+            lastChunk = chunk;
+        });
+        readStream.on('end', () => {
+            try {
+                if (!lastChunk) return res.end();
+                const data = lastChunk.slice(0, lastChunk.length - 16);
+                const authTag = lastChunk.slice(lastChunk.length - 16);
+                if (data.length) {
+                    res.write(decipher.update(data));
+                }
+                decipher.setAuthTag(authTag);
+                const final = decipher.final();
+                if (final.length) res.write(final);
+                res.end();
+            } catch (err) {
+                console.log("Auth failed", err);
+                res.status(401).end();
+            }
+        });
+        readStream.on('error', err => {
             console.error("Stream Error:", err);
             res.status(500).end();
-        })
-    }
-    catch (err) {
+        });
+    } catch (err) {
         console.error("Error previewing file:", err);
         res.status(500).end();
     }
 }
+
 
 export async function makePublic(req, res) {
     try {
@@ -510,6 +502,11 @@ export async function publicFile(req, res) {
         if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
+        res.setHeader('Content-Type', file.contentType);
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.flushHeaders();
         if (file.metadata.publicExpiresAt < Date.now()) {
             const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
             const fileKey = decryptKey(
@@ -547,7 +544,7 @@ export async function publicFile(req, res) {
         // let tail = Buffer.alloc(0);
                 let lastChunk = null;
 
-        downloadStream.on('data', chunk => {
+        readStream.on('data', chunk => {
 
             if (lastChunk) {
                 const decrypted = decipher.update(lastChunk);
@@ -557,7 +554,7 @@ export async function publicFile(req, res) {
             lastChunk = chunk;
         });
 
-        downloadStream.on('end', () => {
+        readStream.on('end', () => {
             try {
                 const data = lastChunk.slice(0, lastChunk.length - 16);
                 const authTag = lastChunk.slice(lastChunk.length - 16);

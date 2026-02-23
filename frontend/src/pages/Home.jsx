@@ -764,6 +764,7 @@ const Home = () => {
                                                             src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
                                                             className="preview-iframe"
                                                             title={filename}
+                                                            allow="autofocus"
                                                         />
                                                     ) : (
                                                         <div>Loading...</div>
