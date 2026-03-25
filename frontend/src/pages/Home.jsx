@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile, FaBars, FaBell, FaUserCircle, FaMoon, FaSun, FaCog, FaShieldAlt, FaChartPie, FaPlus, FaClock, FaStar, FaRegStar, FaUserFriends, FaTrash } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -10,12 +10,30 @@ const Home = () => {
     const [uploading, setUploading] = useState(false);
     const [status, setStatus] = useState('');
     const token = localStorage.getItem('token');
+    
+    // Auth & Layout States
+    const [user, setUser] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('user')) || { username: 'User', email: 'user@alldrive.com' };
+        } catch {
+            return { username: 'User', email: 'user@alldrive.com' };
+        }
+    });
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [activeNav, setActiveNav] = useState('my-files');
+    
     const [showModal, setShowModal] = useState(false);
     const [folderName, setFolderName] = useState('');
     const [folders, setFolders] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [activeMenu, setActiveMenu] = useState(null);
+    const [isDarkMode, setIsDarkMode] = useState(localStorage.getItem('theme') === 'dark');
     const location = useLocation();
+
+    const [storageStats, setStorageStats] = useState({ usedBytes: 0, totalFiles: 0, maxBytes: 15 * 1024 * 1024 * 1024 });
+
+    const fileInputRef = useRef(null);
     const navigate = useNavigate();
     const [previewUrls, setPreviewUrls] = useState({});
     const observerRef = useRef(null);//only loads when files in viewport
@@ -52,6 +70,47 @@ const Home = () => {
     };
 
     const currentPath = getPathFromUrl();
+
+    useEffect(() => {
+        if (isDarkMode) {
+            document.body.classList.add('dark');
+            localStorage.setItem('theme', 'dark');
+        } else {
+            document.body.classList.remove('dark');
+            localStorage.setItem('theme', 'light');
+        }
+    }, [isDarkMode]);
+
+    const formatBytes = (bytes, decimals = 2) => {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    };
+
+    const fetchStorageStats = async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API}/api/user/storage`, {
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setStorageStats(data);
+            }
+        } catch (err) {
+            console.error("Error fetching storage stats:", err);
+        }
+    };
+
+    useEffect(() => {
+        fetchStorageStats();
+        // Refresh when profile is opened
+        if (isProfileOpen) fetchStorageStats();
+    }, [token, isProfileOpen, files.length]);
 
     useEffect(() => {
         if (!token) {
@@ -140,35 +199,91 @@ const Home = () => {
             if (!isConflict) setUploading(false);
         }
     };
-    const handleDeleteClick = (fileGroup) => {
-        const activeFile = getActiveFile(fileGroup);
-        if (fileGroup.versions && fileGroup.versions.length > 1) {
-            setFileToDelete(activeFile);
-            setShowDeleteModal(true);
-        } else {
-            handleDelete(activeFile._id, 'all');
+    const handleDelete = async (fileId, mode = 'all', permanent = false) => {
+        try {
+            const res = await fetch(`${API}/api/files/${fileId}?deleteMode=${mode}&permanent=${permanent}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include',
+            });
+            if (res.ok) {
+                setStatus(permanent ? 'File permanently deleted!' : 'File moved to trash.');
+                fetchFiles();
+                setShowDeleteModal(false);
+                setFileToDelete(null);
+                setTimeout(() => { setStatus(''); }, 2000);
+            } else {
+                setStatus('Failed to delete file.');
+                setTimeout(() => { setStatus(''); }, 2000);
+            }
+        } catch (err) {
+            setStatus('Error deleting file.');
+            setTimeout(() => { setStatus(''); }, 2000);
         }
     };
 
-    const handleDelete = async (fileId, deleteMode = 'all') => {
-        try {
-            const res = await fetch(`${API}/api/files/${fileId}?deleteMode=${deleteMode}`, {
-                method: 'DELETE',
-                credentials: 'include',
-                headers: { 'Authorization': 'Bearer ' + token }
-            })
-            if (res.ok) {
-                setStatus('File deleted Successfully!');
-                setShowDeleteModal(false);
-                setFileToDelete(null);
-                fetchFiles();
-                setTimeout(() => { setStatus(''); }, 2000);
+    const handleDeleteClick = (fileGroup) => {
+        const activeFile = getActiveFile(fileGroup);
+        const isTrash = activeNav === 'trash';
+        if (isTrash) {
+            setFileToDelete(activeFile);
+            if (fileGroup.versions && fileGroup.versions.length > 1) {
+                setShowDeleteModal(true);
+            } else {
+                handleDelete(activeFile._id, 'all', true);
             }
-        }
-        catch (err) {
-            console.log(err);
+        } else {
+            handleDelete(activeFile._id, 'all', false);
         }
     };
+
+    const handleRestore = async (fileGroup) => {
+        const activeFile = getActiveFile(fileGroup);
+        try {
+            const res = await fetch(`${API}/api/files/restore/${activeFile._id}`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include',
+            });
+            if (res.ok) {
+                setStatus('File restored successfully!');
+                fetchFiles();
+                setTimeout(() => setStatus(''), 2000);
+            } else {
+                setStatus('Failed to restore file.');
+                setTimeout(() => setStatus(''), 2000);
+            }
+        } catch(e) {
+            setStatus('Error restoring file.');
+            setTimeout(() => setStatus(''), 2000);
+        }
+    };
+
+    const handleToggleStar = async (fileGroup) => {
+        const activeFile = getActiveFile(fileGroup);
+        const newStatus = !activeFile.metadata?.isStarred;
+        try {
+            const res = await fetch(`${API}/api/files/star/${activeFile._id}`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ isStarred: newStatus }),
+                credentials: 'include',
+            });
+            if (res.ok) {
+                fetchFiles();
+            } else {
+                setStatus('Failed to update star status.');
+                setTimeout(() => setStatus(''), 2000);
+            }
+        } catch(e) {
+            setStatus('Error updating star status.');
+            setTimeout(() => setStatus(''), 2000);
+        }
+    };
+
     const handleCreateFolder = async () => {
 
         await fetch(`${API}/api/folders`, {
@@ -240,7 +355,6 @@ const Home = () => {
         const newPath = parts.length > 0 ? parts.join('/') + '/' : '';
         navigate(newPath ? `/home?path=${encodeURIComponent(newPath)}` : '/home');
     };
-    const fileInputRef = useRef(null);
 
     const handleDrop = (e) => {
         e.preventDefault();
@@ -518,26 +632,124 @@ const Home = () => {
 
     // Close menu when clicking outside
     useEffect(() => {
-        const handleClickOutside = () => setActiveMenu(null);
-        window.addEventListener('click', handleClickOutside);
-        return () => window.removeEventListener('click', handleClickOutside);
+        const handleClickOutside = () => {
+            setActiveMenu(null);
+            setIsProfileOpen(false);
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
     }, []);
     return (
-        <div className="home-container">
-            <div className="container">
-                <header className="home-header">
-                    <h1 className="header-title">
-                        <span className="text-primary">All</span>Drive
-                    </h1>
-                    <button onClick={() => navigate('/account')} className="btn btn-primary">Account</button>
-                    <button onClick={handleLogout} className="btn btn-logout">
-                        <FaSignOutAlt /> Logout
+        <div className={`app-wrapper ${isDarkMode ? 'dark-theme' : ''}`}>
+            <nav className="navbar">
+                <div className="navbar-left">
+                    <button className="icon-btn mobile-menu-btn" onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen); }}>
+                        <FaBars />
                     </button>
-                </header>
+                    <div className="navbar-brand" onClick={() => { setActiveNav('my-files'); navigate('/home'); }}>
+                        <div className="logo-icon">
+                            <span className="text-primary">All</span>Drive
+                        </div>
+                    </div>
+                </div>
 
-                <div className="grid-container">
+                <div className="navbar-center">
+                    <div className="search-wrapper">
+                        <FaSearch className="search-icon" />
+                        <input 
+                            type="text" 
+                            className="nav-search-input" 
+                            placeholder="Search in Drive..." 
+                            value={searchQuery} 
+                            onChange={(e) => setSearchQuery(e.target.value)} 
+                        />
+                    </div>
+                </div>
+
+                <div className="navbar-right">
+                    <button 
+                        className="btn btn-primary btn-upload-nav"
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                    >
+                        <FaPlus /> <span className="upload-text">New</span>
+                    </button>
+                    <button className="icon-btn notification-btn">
+                        <FaBell />
+                    </button>
+                    
+                    <div className="profile-menu-container">
+                        <button className="profile-btn" onClick={(e) => { e.stopPropagation(); setIsProfileOpen(!isProfileOpen); }}>
+                            <FaUserCircle className="avatar-icon" />
+                        </button>
+
+                        {isProfileOpen && (
+                            <div className="profile-dropdown" onClick={(e) => e.stopPropagation()}>
+                                <div className="profile-header">
+                                    <span className="profile-name">{user.username || 'User'}</span>
+                                    <span className="profile-email">{user.email || 'user@example.com'}</span>
+                                </div>
+                                <div className="dropdown-divider"></div>
+                                <div className="storage-section">
+                                    <div className="storage-header">
+                                        <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}><FaChartPie className="menu-icon"/> <span>Storage Usage</span></div>
+                                    </div>
+                                    <div className="progress-bar-container">
+                                        <div className="progress-bar-fill" style={{width: `${Math.min((storageStats.usedBytes / storageStats.maxBytes) * 100, 100)}%`}}></div>
+                                    </div>
+                                    <div className="storage-text">{formatBytes(storageStats.usedBytes)} / {formatBytes(storageStats.maxBytes)} used</div>
+                                </div>
+                                <div className="dropdown-divider"></div>
+                                <div className="menu-item" onClick={() => { setIsProfileOpen(false); navigate('/account'); }}>
+                                    <FaCog className="menu-icon"/> Settings
+                                </div>
+                                <div className="menu-item disabled">
+                                    <FaShieldAlt className="menu-icon"/> Security
+                                </div>
+                                <div className="menu-item" onClick={() => { setIsDarkMode(!isDarkMode); setIsProfileOpen(false); }}>
+                                    {isDarkMode ? <FaSun className="menu-icon"/> : <FaMoon className="menu-icon"/>} {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+                                </div>
+                                <div className="dropdown-divider"></div>
+                                <div className="menu-item delete-item" onClick={handleLogout}>
+                                    <FaSignOutAlt className="menu-icon"/> Logout
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </nav>
+
+            <div className={`main-layout ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+                <aside className="sidebar">
+                    {activeNav === 'my-files' && (
+                        <button className="btn btn-primary btn-upload-sidebar" onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                            <FaPlus /> <span style={{marginLeft: '0.5rem'}}>New</span>
+                        </button>
+                    )}
+                    <nav className="nav-links" style={{marginTop: activeNav !== 'my-files' ? '20px' : '0'}}>
+                        <div className={`nav-link ${activeNav === 'my-files' ? 'active' : ''}`} onClick={() => { setActiveNav('my-files'); navigate('/home'); }}>
+                            <FaFolder className="nav-icon"/> My Files
+                        </div>
+                        <div className={`nav-link ${activeNav === 'recent' ? 'active' : ''}`} onClick={() => { setActiveNav('recent'); navigate('/home?path=/recent'); }}>
+                            <FaClock className="nav-icon"/> Recent
+                        </div>
+                        <div className={`nav-link ${activeNav === 'starred' ? 'active' : ''}`} onClick={() => { setActiveNav('starred'); navigate('/home?path=/starred'); }}>
+                            <FaStar className="nav-icon"/> Starred
+                        </div>
+                        <div className={`nav-link ${activeNav === 'shared' ? 'active' : ''}`} onClick={() => { setActiveNav('shared'); navigate('/home?path=/shared'); }}>
+                            <FaUserFriends className="nav-icon"/> Shared with Me
+                        </div>
+                        <div className={`nav-link ${activeNav === 'trash' ? 'active' : ''}`} onClick={() => { setActiveNav('trash'); navigate('/home?path=/trash'); }}>
+                            <FaTrash className="nav-icon"/> Trash
+                        </div>
+                    </nav>
+                </aside>
+
+                <div className="content-area">
+                    <div className="container">
+                        <div className="grid-container">
 
                     {/* Upload Section */}
+                    {activeNav === 'my-files' && (
                     <div className="card glass">
                         <h2 className="section-title">
                             <FaCloudUploadAlt className="icon-primary" /> Upload Files
@@ -560,9 +772,11 @@ const Home = () => {
                             )}
                         </form>
                     </div>
+                    )}
                     {/* Folder Section */}
 
-                    <div className='card glassfolder-section'>
+                    {activeNav === 'my-files' && (
+                    <div className='card glass folder-section'>
                         <div className='folder-section'>
                             <h2 className="files-title">Your Folders</h2>
                             <div className="folder-actions">
@@ -604,6 +818,7 @@ const Home = () => {
                             ))}
                         </ul>
                     </div>
+                    )}
                     {showModal && (
                         <div className="modal-overlay">
                             <div className="modal-box">
@@ -706,15 +921,7 @@ const Home = () => {
                     {/* Files Section */}
                     <div className="card glass files-section">
                         <div className="files-header">
-
                             <h2 className="files-title">Your Files</h2>
-                            <div className="input-group search-container">
-
-                                <div className="search-wrapper">
-                                    <FaSearch className="search-icon" />
-                                    <input type="text" className="input-field search-input" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-                                </div>
-                            </div>
                         </div>
 
                         {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
@@ -730,6 +937,7 @@ const Home = () => {
                                     const fileId = fileGroup._id || index;
                                     const isImg = isImageFile(filename);
                                     const isPdf = filename?.toLowerCase().endsWith('.pdf');
+                                    const activeFile = getActiveFile(fileGroup); // Ensure activeFile is defined for dropdown logic
 
                                     return (
                                         <li key={fileId} className="file-card" data-id={file._id}
@@ -769,46 +977,64 @@ const Home = () => {
                                                     )}
                                                 </div>
 
-                                                <div className="menu-container">
+                                                <div className="menu-container" style={{display: 'flex', alignItems: 'center'}}>
+                                                    <button className="btn-icon star-btn" style={{padding: '0.3rem', fontSize: '1rem', color: activeFile.metadata?.isStarred ? '#f1c40f' : 'var(--text-muted)'}} onClick={(e) => { e.stopPropagation(); handleToggleStar(fileGroup); }}>
+                                                        {activeFile.metadata?.isStarred ? <FaStar /> : <FaRegStar />}
+                                                    </button>
                                                     <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(fileId, e)}>
                                                         <FaEllipsisV />
                                                     </button>
 
                                                     {activeMenu === fileId && (
                                                         <div className="menu-dropdown">
-                                                            <div className="menu-item" onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleOpenFile(file);
-                                                                setActiveMenu(null);
-                                                            }}>Open</div>
-                                                            <div className="menu-item" onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (file.metadata?.isPublic) {
-                                                                    handleMakePrivate(file);
-                                                                } else {
-                                                                    initiateMakePublic(file);
-                                                                }
-                                                                setActiveMenu(null);
-                                                            }}>
-                                                                {file.metadata?.isPublic ? 'Make Private' : 'Make Public'}
-                                                            </div>
-                                                            {file.metadata?.isPublic && (
-                                                                <div className="menu-item" onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleCopyLink(file);
-                                                                    setActiveMenu(null);
-                                                                }}>Copy Link</div>
-                                                            )}
-                                                            <div className="menu-item" onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDownload(file);
-                                                                setActiveMenu(null);
-                                                            }}>Download</div>
-                                                            <div className="menu-item delete-item" onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDeleteClick(fileGroup);
-                                                                setActiveMenu(null);
-                                                            }}>Delete</div>
+                                                              {activeNav === 'trash' ? (
+                                                                  <>
+                                                                    <div className="menu-item" onClick={(e) => { e.stopPropagation(); handleRestore(fileGroup); setActiveMenu(null); }}>Restore</div>
+                                                                    <div className="menu-item delete-item" onClick={(e) => { e.stopPropagation(); handleDeleteClick(fileGroup); setActiveMenu(null); }}>Delete Permanently</div>
+                                                                  </>
+                                                              ) : (
+                                                                  <>
+                                                                    <div className="menu-item" onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleOpenFile(file);
+                                                                        setActiveMenu(null);
+                                                                    }}>Open</div>
+                                                                    {!activeFile.metadata?.isPublic ? (
+                                                                        <div className="menu-item" onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            initiateMakePublic(file);
+                                                                            setActiveMenu(null);
+                                                                        }}>
+                                                                            Make Public
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="menu-item" onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleMakePrivate(activeFile);
+                                                                            setActiveMenu(null);
+                                                                        }}>
+                                                                            Make Private
+                                                                        </div>
+                                                                    )}
+                                                                    {activeFile.metadata?.isPublic && (
+                                                                        <div className="menu-item" onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleCopyLink(activeFile);
+                                                                            setActiveMenu(null);
+                                                                        }}>Copy Link</div>
+                                                                    )}
+                                                                    <div className="menu-item" onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDownload(activeFile);
+                                                                        setActiveMenu(null);
+                                                                    }}>Download</div>
+                                                                    <div className="menu-item delete-item" onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteClick(fileGroup);
+                                                                        setActiveMenu(null);
+                                                                    }}>Delete</div>
+                                                                  </>
+                                                              )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -847,6 +1073,8 @@ const Home = () => {
                         )}
                     </div>
                 </div>
+            </div>
+            </div>
             </div>
 
             {showConflictModal && (

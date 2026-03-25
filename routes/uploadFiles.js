@@ -15,7 +15,7 @@ export const middlewareUpload = upload.array('files');
 // Lazy Mongo client and bucket initialization to avoid crashing when MONGO_URI is missing at import time
 // let client;
 let bucket = null;
-async function ensureBucket() {
+export async function ensureBucket() {
     if (bucket) return bucket;
 
     const db = mongoose.connection.db;
@@ -32,7 +32,7 @@ async function ensureBucket() {
 // if (!process.env.FILE_KEY_MASTER) {
 //     throw new Error("File key master not found");
 // }    
-function encryptKey(key, masterKey) {
+export function encryptKey(key, masterKey) {
     const iv = randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', masterKey, iv);
     const encrypted = Buffer.concat([
@@ -266,10 +266,22 @@ export async function getFiles(req, res) {
 
 
         // ✅ Step 2: fetch files normally
-        const files2 = await filesCollection.find({
-            "metadata.userId": req.user.id,
-            "metadata.path": req.query.path,
-        }).toArray();
+        let query = { "metadata.userId": req.user.id };
+        let files2Cursor;
+
+        if (req.query.path === '/recent') {
+            query["metadata.path"] = { $ne: "/trash" };
+            files2Cursor = filesCollection.find(query).sort({ uploadDate: -1 }).limit(10);
+        } else if (req.query.path === '/starred') {
+            query["metadata.path"] = { $ne: "/trash" };
+            query["metadata.isStarred"] = true;
+            files2Cursor = filesCollection.find(query);
+        } else {
+            query["metadata.path"] = req.query.path || "";
+            files2Cursor = filesCollection.find(query);
+        }
+
+        const files2 = await files2Cursor.toArray();
 
         // Group by fileGroupId or filename if fileGroupId missing
         const grouped = {};
@@ -306,30 +318,133 @@ export async function deleteFile(req, res) {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
         const deleteMode = req.query.deleteMode || req.body.deleteMode || 'all'; // 'all' or 'revert'
+        const permanent = req.query.permanent === 'true'; // soft or hard delete
 
         if (!fileId) {
             return res.status(404).json({ error: "File not found" });
         }
 
+        const filesCollection = bucket.s._filesCollection;
+
         if (deleteMode === 'all') {
-            const filesCollection = bucket.s._filesCollection;
             const file = await filesCollection.findOne({ _id: fileId });
             if (file && file.metadata && file.metadata.fileGroupId) {
                 const allVersions = await filesCollection.find({ "metadata.fileGroupId": file.metadata.fileGroupId }).toArray();
                 for (const v of allVersions) {
-                    try { await bucket.delete(v._id); } catch(e) {}
+                    if (permanent) {
+                        try { await bucket.delete(v._id); } catch(e) {}
+                    } else {
+                        await filesCollection.updateOne({ _id: v._id }, { $set: { "metadata.path": "/trash" } });
+                    }
                 }
             } else {
-                await bucket.delete(fileId);
+                if (permanent) {
+                    await bucket.delete(fileId);
+                } else {
+                    await filesCollection.updateOne({ _id: fileId }, { $set: { "metadata.path": "/trash" } });
+                }
             }
         } else if (deleteMode === 'revert') {
+            // Revert always hard-deletes the current version
             await bucket.delete(fileId);
         }
 
-        res.status(200).json({ message: "File deleted successfully" });
+        res.status(200).json({ message: permanent ? "File deleted permanently" : "File moved to trash" });
     }
     catch (err) {
         res.status(500).json({ error: "Error deleting file" });
+    }
+}
+
+export async function restoreFile(req, res) {
+    try {
+        const bucket = await ensureBucket();
+        const fileId = new ObjectId(req.params.fileId);
+        const filesCollection = bucket.s._filesCollection;
+
+        const file = await filesCollection.findOne({ _id: fileId });
+        if (!file) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        if (file.metadata && file.metadata.fileGroupId) {
+            await filesCollection.updateMany(
+                { "metadata.fileGroupId": file.metadata.fileGroupId },
+                { $set: { "metadata.path": "" } }
+            );
+        } else {
+            await filesCollection.updateOne(
+                { _id: fileId },
+                { $set: { "metadata.path": "" } }
+            );
+        }
+
+        res.status(200).json({ message: "File restored successfully" });
+    } catch (err) {
+        console.error("Error restoring file", err);
+        res.status(500).json({ error: "Error restoring file" });
+    }
+}
+
+export async function toggleStarFile(req, res) {
+    try {
+        const bucket = await ensureBucket();
+        const fileId = new ObjectId(req.params.fileId);
+        const { isStarred } = req.body;
+        const filesCollection = bucket.s._filesCollection;
+
+        const file = await filesCollection.findOne({ _id: fileId });
+        if (!file) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        if (file.metadata && file.metadata.fileGroupId) {
+            await filesCollection.updateMany(
+                { "metadata.fileGroupId": file.metadata.fileGroupId },
+                { $set: { "metadata.isStarred": isStarred } }
+            );
+        } else {
+            await filesCollection.updateOne(
+                { _id: fileId },
+                { $set: { "metadata.isStarred": isStarred } }
+            );
+        }
+
+        res.status(200).json({ message: "Star status updated successfully", isStarred });
+    } catch (err) {
+        console.error("Error toggling star", err);
+        res.status(500).json({ error: "Error updating star status" });
+    }
+}
+
+export async function getStorageStats(req, res) {
+    try {
+        const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
+        
+        const aggregation = await filesCollection.aggregate([
+            { 
+               $match: { 
+                    $or: [
+                        { "metadata.userId": req.user.id },
+                        { "metadata.userId": new ObjectId(req.user.id) }
+                    ]
+               } 
+            },
+            { $group: { _id: null, totalBytes: { $sum: "$length" }, count: { $sum: 1 } } }
+        ]).toArray();
+
+        const stats = aggregation.length > 0 ? aggregation[0] : { totalBytes: 0, count: 0 };
+        const MAX_STORAGE_BYTES = 15 * 1024 * 1024 * 1024; // 15 GB free tier
+        
+        res.status(200).json({ 
+            usedBytes: stats.totalBytes, 
+            totalFiles: stats.count,
+            maxBytes: MAX_STORAGE_BYTES
+        });
+    } catch (error) {
+        console.error("Storage stats error", error);
+        res.status(500).json({ error: "Failed to get storage stats" });
     }
 }
 
@@ -379,7 +494,7 @@ export async function deleteFolder(req, res) {
         res.status(500).json({ error: "Error deleting folder" });
     }
 }
-function decryptKey(encryptedFileKey, userMasterKey, keyIv, keyAuthTag) {
+export function decryptKey(encryptedFileKey, userMasterKey, keyIv, keyAuthTag) {
     try {
         const decipher = crypto.createDecipheriv('aes-256-gcm', userMasterKey, keyIv);
         decipher.setAuthTag(keyAuthTag);

@@ -1,31 +1,48 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
+  /* Common Values */
   --font-sans: 'Inter', sans-serif;
-
-  /* Primary HSL */
   --color-primary-hue: 250;
   --color-primary: hsl(var(--color-primary-hue), 70%, 60%);
   --color-primary-hover: hsl(var(--color-primary-hue), 70%, 50%);
-  --color-primary-light: hsl(var(--color-primary-hue), 70%, 75%);
-
-  /* Backgrounds */
-  --bg-dark: #0f172a;
-  --bg-card: #1e293b;
-  --bg-input: #334155;
-
-  /* Text */
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-
-  /* Accents */
   --accent-success: #10b981;
   --accent-error: #ef4444;
+  --backdrop-blur: 12px;
 
-  /* Glassmorphism */
+  /* Light Mode (Default) */
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-input: #f1f5f9;
+  --bg-hover: #f1f5f9;
+  --text-main: #111827;
+  --text-body: #374151;
+  --text-muted: #64748b;
+  --border-color: #e5e7eb;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  
+  --sidebar-active-bg: #ede9fe;
+  --sidebar-active-text: #6d28d9;
+}
+
+.dark {
+  /* Dark Mode */
+  --bg-main: #0f172a;
+  --bg-card: #1e293b;
+  --bg-input: #334155;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --text-main: #f8fafc;
+  --text-body: #f8fafc;
+  --text-muted: #94a3b8;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --shadow-sm: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
   --glass-bg: rgba(30, 41, 59, 0.7);
   --glass-border: rgba(255, 255, 255, 0.1);
-  --backdrop-blur: 12px;
+
+  --sidebar-active-bg: rgba(144, 202, 249, 0.15);
+  --sidebar-active-text: #90caf9;
 }
 
 * {
@@ -36,10 +53,15 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-dark);
-  color: var(--text-main);
+  background-color: var(--bg-main);
+  color: var(--text-body);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-main);
 }
 
 a {
@@ -71,15 +93,15 @@ input {
   background: var(--bg-card);
   border-radius: 1rem;
   padding: 2rem;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-color);
 }
 
 .glass {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--backdrop-blur));
   -webkit-backdrop-filter: blur(var(--backdrop-blur));
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
 }
 
 .btn {
@@ -113,9 +135,9 @@ input {
   width: 100%;
   padding: 0.75rem 1rem;
   background: var(--bg-input);
-  color: white;
+  color: var(--text-body);
   border-radius: 0.5rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   transition: all 0.2s;
 }
 

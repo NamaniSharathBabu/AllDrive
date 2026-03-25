@@ -1,7 +1,7 @@
 import userModel from "../models/userModel.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { deriveUserMasterKey } from "./uploadFiles.js";
+import { deriveUserMasterKey, encryptKey, decryptKey, ensureBucket } from "./uploadFiles.js";
 import crypto from 'crypto';
 
 export async function login(req, res) {
@@ -74,5 +74,79 @@ export async function register(req, res) {
     } catch (error) {
         // console.error("Register error:", error);
         res.status(500).json({ success: false, message: "Registration failed: " + error.message });
+    }
+}
+
+export async function changePassword(req, res) {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    if (!oldPassword || !newPassword) {
+        return res.status(400).json({ success: false, message: "Old and new passwords are required" });
+    }
+
+    try {
+        const user = await userModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const isMatch = await bcrypt.compare(oldPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Incorrect old password" });
+        }
+
+        // Derive keys
+        const oldMasterKey = await deriveUserMasterKey(oldPassword, user.salt);
+        const newMasterKey = await deriveUserMasterKey(newPassword, user.salt);
+
+        const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
+
+        // Fetch all files for this user
+        const files = await filesCollection.find({ "metadata.userId": user._id.toString() }).toArray();
+
+        // Migration: Re-encrypt file keys
+        for (const file of files) {
+            // Only re-encrypt if not public (public files use SERVER_MASTER_KEY)
+            if (!file.metadata.isPublic && file.metadata.encryptedFileKey) {
+                try {
+                    const fileKey = decryptKey(
+                        Buffer.from(file.metadata.encryptedFileKey, 'hex'),
+                        oldMasterKey,
+                        Buffer.from(file.metadata.keyIv, 'hex'),
+                        Buffer.from(file.metadata.keyAuthTag, 'hex')
+                    );
+
+                    const reEncrypted = encryptKey(fileKey, newMasterKey);
+
+                    await filesCollection.updateOne(
+                        { _id: file._id },
+                        {
+                            $set: {
+                                "metadata.encryptedFileKey": reEncrypted.encryptedKey.toString('hex'),
+                                "metadata.keyIv": reEncrypted.iv.toString('hex'),
+                                "metadata.keyAuthTag": reEncrypted.authTag.toString('hex')
+                            }
+                        }
+                    );
+                } catch (err) {
+                    console.error(`Failed to migrate file ${file._id}:`, err);
+                    // Decide if you want to abort or continue. Continuing seems safer for the rest of data.
+                }
+            }
+        }
+
+        // Update user password - user.password = newPassword will be hashed by pre-save hook
+        user.password = newPassword;
+        await user.save();
+
+        // Update session key
+        req.session.userMasterKey = newMasterKey.toString('hex');
+
+        res.status(200).json({ success: true, message: "Password updated and files re-encrypted successfully" });
+    } catch (error) {
+        console.error("Change password error:", error);
+        res.status(500).json({ success: false, message: "Failed to change password: " + error.message });
     }
 }
