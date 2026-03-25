@@ -28,6 +28,21 @@ const Home = () => {
     const [durationHours, setDurationHours] = useState(0);
     const [durationMinutes, setDurationMinutes] = useState(0);
 
+    const [showConflictModal, setShowConflictModal] = useState(false);
+    const [conflictFile, setConflictFile] = useState(null);
+    const [conflictFormData, setConflictFormData] = useState(null);
+    
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [fileToDelete, setFileToDelete] = useState(null);
+    const [selectedVersions, setSelectedVersions] = useState({});
+
+    const getActiveFile = (fileGroup) => {
+        if (!fileGroup.versions || fileGroup.versions.length <= 1) return fileGroup;
+        const groupId = fileGroup.metadata?.fileGroupId || fileGroup._id;
+        const selectedId = selectedVersions[groupId] || fileGroup._id;
+        return fileGroup.versions.find(v => v._id === selectedId) || fileGroup;
+    };
+
 
 
     // Derive currentPath from URL query params
@@ -73,12 +88,19 @@ const Home = () => {
         navigate('/login');
     };
 
-    const handleUpload = async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        formData.append('path', currentPath || '');
+    const handleUpload = async (e, retryAction = null, existingFormData = null) => {
+        if (e) e.preventDefault();
+        const formData = existingFormData || new FormData(e.target);
+        if (!existingFormData) {
+            formData.set('path', currentPath || '');
+        }
+        if (retryAction) {
+            formData.set('conflictAction', retryAction);
+        }
+
         setUploading(true);
         setStatus('');
+        let isConflict = false;
 
         try {
             const res = await fetch(`${API}/api/upload`, {
@@ -88,9 +110,23 @@ const Home = () => {
                 credentials: 'include',
             });
 
+            if (res.status === 409) {
+                isConflict = true;
+                const data = await res.json();
+                setConflictFile(data.filename);
+                setConflictFormData(formData);
+                setShowConflictModal(true);
+                setUploading(false);
+                return;
+            }
+
             if (res.ok) {
                 setStatus('Files uploaded successfully!');
-                e.target.reset();
+                if (e) e.target.reset();
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                setShowConflictModal(false);
+                setConflictFormData(null);
+                setConflictFile(null);
                 fetchFiles();
                 setTimeout(() => { setStatus(''); }, 2000);
             } else {
@@ -101,20 +137,30 @@ const Home = () => {
             setStatus('Error uploading files.');
             setTimeout(() => { setStatus(''); }, 2000);
         } finally {
-            setUploading(false);
+            if (!isConflict) setUploading(false);
         }
     };
-    const handleDelete = async (file) => {
+    const handleDeleteClick = (fileGroup) => {
+        const activeFile = getActiveFile(fileGroup);
+        if (fileGroup.versions && fileGroup.versions.length > 1) {
+            setFileToDelete(activeFile);
+            setShowDeleteModal(true);
+        } else {
+            handleDelete(activeFile._id, 'all');
+        }
+    };
+
+    const handleDelete = async (fileId, deleteMode = 'all') => {
         try {
-            const fileId = file._id;
-            console.log(file);
-            const res = await fetch(`${API}/api/files/${fileId}`, {
+            const res = await fetch(`${API}/api/files/${fileId}?deleteMode=${deleteMode}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: { 'Authorization': 'Bearer ' + token }
             })
             if (res.ok) {
                 setStatus('File deleted Successfully!');
+                setShowDeleteModal(false);
+                setFileToDelete(null);
                 fetchFiles();
                 setTimeout(() => { setStatus(''); }, 2000);
             }
@@ -678,9 +724,10 @@ const Home = () => {
                             </div>
                         ) : (
                             <ul className="file-list">
-                                {files.filter(file => (typeof file === 'string' ? file : (file.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((file, index) => {
+                                {files.filter(fileGroup => (typeof fileGroup === 'string' ? fileGroup : (fileGroup.filename || '')).toLowerCase().includes(searchQuery.toLowerCase())).map((fileGroup, index) => {
+                                    const file = getActiveFile(fileGroup);
                                     const filename = typeof file === 'string' ? file : file.filename || 'Untitled';
-                                    const fileId = file._id || index;
+                                    const fileId = fileGroup._id || index;
                                     const isImg = isImageFile(filename);
                                     const isPdf = filename?.toLowerCase().endsWith('.pdf');
 
@@ -698,9 +745,29 @@ const Home = () => {
                                                 <div className="file-icon-small">
                                                     {getFileIcon(filename)}
                                                 </div>
-                                                <span className="file-name" title={filename}>
-                                                    {filename}
-                                                </span>
+                                                <div style={{display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0}}>
+                                                    <span className="file-name" title={filename}>
+                                                        {filename}
+                                                    </span>
+                                                    {fileGroup.versions && fileGroup.versions.length > 1 && (
+                                                        <select 
+                                                            className="version-select"
+                                                            onClick={e => e.stopPropagation()}
+                                                            value={file._id}
+                                                            onChange={e => {
+                                                                const val = e.target.value;
+                                                                setSelectedVersions(prev => ({...prev, [fileGroup.metadata?.fileGroupId || fileGroup._id]: val}));
+                                                            }}
+                                                            style={{fontSize: '10px', marginTop: '2px', background: '#333', color: '#ccc', border: '1px solid #555', borderRadius: '4px', padding: '1px'}}
+                                                        >
+                                                            {fileGroup.versions.map(v => (
+                                                                <option key={v._id} value={v._id}>
+                                                                    Version {v.metadata?.version || 1}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                </div>
 
                                                 <div className="menu-container">
                                                     <button className="btn-icon three-dots-btn" onClick={(e) => toggleMenu(fileId, e)}>
@@ -739,7 +806,7 @@ const Home = () => {
                                                             }}>Download</div>
                                                             <div className="menu-item delete-item" onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                handleDelete(file);
+                                                                handleDeleteClick(fileGroup);
                                                                 setActiveMenu(null);
                                                             }}>Delete</div>
                                                         </div>
@@ -781,6 +848,35 @@ const Home = () => {
                     </div>
                 </div>
             </div>
+
+            {showConflictModal && (
+                <div className="modal-overlay">
+                    <div className="modal-box">
+                        <h3>File Conflict</h3>
+                        <p className="modal-description">A file named "{conflictFile}" already exists.</p>
+                        <div className="modal-actions" style={{display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px'}}>
+                            <button className="btn btn-primary" onClick={() => handleUpload(null, 'keep_both', conflictFormData)}>Keep Both (Rename new file)</button>
+                            <button className="btn btn-primary" style={{backgroundColor: '#e74c3c'}} onClick={() => handleUpload(null, 'replace', conflictFormData)}>Replace Existing File</button>
+                            <button className="btn btn-primary" style={{backgroundColor: '#2ecc71'}} onClick={() => handleUpload(null, 'update_version', conflictFormData)}>Update as New Version</button>
+                            <button className="btn btn-secondary" onClick={() => { setShowConflictModal(false); setConflictFormData(null); }}>Cancel Upload</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showDeleteModal && (
+                <div className="modal-overlay">
+                    <div className="modal-box">
+                        <h3>Delete File</h3>
+                        <p className="modal-description">This file has multiple versions. What would you like to delete?</p>
+                        <div className="modal-actions" style={{display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px'}}>
+                            <button className="btn btn-primary" style={{backgroundColor: '#e74c3c'}} onClick={() => handleDelete(fileToDelete._id, 'all')}>Delete All Versions</button>
+                            <button className="btn btn-primary" onClick={() => handleDelete(fileToDelete._id, 'revert')}>Revert to Previous (Delete Current)</button>
+                            <button className="btn btn-secondary" onClick={() => { setShowDeleteModal(false); setFileToDelete(null); }}>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

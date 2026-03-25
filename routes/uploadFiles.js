@@ -79,6 +79,7 @@ export async function deriveUserMasterKey(password, salt) {
 export async function uploadFiles(req, res) {
     try {
         const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
         const files = req.files;
 
         if (!files || files.length === 0) {
@@ -87,6 +88,84 @@ export async function uploadFiles(req, res) {
 
         if (!req.session?.userMasterKey) {
             return res.status(401).json({ error: "Session expired. Please login again" });
+        }
+
+        const conflictAction = req.body.conflictAction; // 'keep_both', 'replace', 'update_version'
+        const targetPath = req.body.path || '';
+
+        // Pre-process files to check for conflicts and determine final filenames and versions
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const existingFile = await filesCollection.findOne({
+                "metadata.userId": req.user.id,
+                "metadata.path": targetPath,
+                filename: file.originalname
+            });
+
+            file.versionGroupId = new mongoose.Types.ObjectId().toString();
+            file.metadata_version = 1;
+
+            if (existingFile) {
+                if (!conflictAction) {
+                    return res.status(409).json({ error: "FileExists", filename: file.originalname });
+                }
+
+                if (conflictAction === 'keep_both') {
+                    let counter = 1;
+                    let newFilename = '';
+                    const parts = file.originalname.split('.');
+                    const ext = parts.length > 1 ? `.${parts.pop()}` : '';
+                    const base = parts.join('.');
+                    
+                    while (true) {
+                        newFilename = `${base} (${counter})${ext}`;
+                        const checkCopy = await filesCollection.findOne({
+                            "metadata.userId": req.user.id,
+                            "metadata.path": targetPath,
+                            filename: newFilename
+                        });
+                        if (!checkCopy) break;
+                        counter++;
+                    }
+                    file.originalname = newFilename;
+
+                } else if (conflictAction === 'replace') {
+                    const existingFiles = await filesCollection.find({
+                        "metadata.userId": req.user.id,
+                        "metadata.path": targetPath,
+                        filename: file.originalname
+                    }).toArray();
+                    
+                    for (const f of existingFiles) {
+                        try { await bucket.delete(f._id); } catch(e) {}
+                    }
+
+                } else if (conflictAction === 'update_version') {
+                    file.versionGroupId = existingFile.metadata.fileGroupId || existingFile._id.toString();
+                    
+                    const allVersions = await filesCollection.find({
+                        "metadata.userId": req.user.id,
+                        "metadata.path": targetPath,
+                        "metadata.fileGroupId": file.versionGroupId
+                    }).toArray();
+                    
+                    let maxVer = existingFile.metadata.version || 1;
+                    for (const v of allVersions) {
+                        if (v.metadata && v.metadata.version > maxVer) maxVer = v.metadata.version;
+                    }
+                    
+                    // Add version metadata to existing file if missing
+                    if (!existingFile.metadata.fileGroupId) {
+                        await filesCollection.updateOne({ _id: existingFile._id }, {
+                            $set: {
+                                "metadata.fileGroupId": file.versionGroupId,
+                                "metadata.version": 1
+                            }
+                        });
+                    }
+                    file.metadata_version = maxVer + 1;
+                }
+            }
         }
 
         const USER_MASTER_KEY = Buffer.from(req.session.userMasterKey, 'hex');
@@ -106,12 +185,14 @@ export async function uploadFiles(req, res) {
                     contentType: file.mimetype,
                     metadata: {
                         userId: req.user.id,
-                        path: req.body.path,
+                        path: targetPath,
                         iv: iv.toString('hex'),
                         encryptedFileKey: encryptedFileKey.encryptedKey.toString('hex'),
                         keyAuthTag: encryptedFileKey.authTag.toString('hex'),
                         keyIv: encryptedFileKey.iv.toString('hex'),
-                        isPublic: false
+                        isPublic: false,
+                        fileGroupId: file.versionGroupId,
+                        version: file.metadata_version
                     }
                 });
 
@@ -189,7 +270,30 @@ export async function getFiles(req, res) {
             "metadata.userId": req.user.id,
             "metadata.path": req.query.path,
         }).toArray();
-        return res.json(files2 || []);
+
+        // Group by fileGroupId or filename if fileGroupId missing
+        const grouped = {};
+        files2.forEach(file => {
+            const groupId = file.metadata.fileGroupId || file._id.toString();
+            if (!grouped[groupId]) {
+                grouped[groupId] = {
+                    ...file,
+                    versions: []
+                };
+            }
+            grouped[groupId].versions.push(file);
+        });
+
+        const result = Object.values(grouped).map(group => {
+            group.versions.sort((a, b) => (b.metadata.version || 1) - (a.metadata.version || 1));
+            const latest = group.versions[0];
+            return {
+                ...latest,
+                versions: group.versions
+            };
+        });
+
+        return res.json(result);
     } catch (error) {
         res.status(500).json({ error: "Error retrieving files" });
     }
@@ -201,10 +305,26 @@ export async function deleteFile(req, res) {
     try {
         const bucket = await ensureBucket();
         const fileId = new ObjectId(req.params.fileId);
+        const deleteMode = req.query.deleteMode || req.body.deleteMode || 'all'; // 'all' or 'revert'
+
         if (!fileId) {
             return res.status(404).json({ error: "File not found" });
         }
-        await bucket.delete(fileId);
+
+        if (deleteMode === 'all') {
+            const filesCollection = bucket.s._filesCollection;
+            const file = await filesCollection.findOne({ _id: fileId });
+            if (file && file.metadata && file.metadata.fileGroupId) {
+                const allVersions = await filesCollection.find({ "metadata.fileGroupId": file.metadata.fileGroupId }).toArray();
+                for (const v of allVersions) {
+                    try { await bucket.delete(v._id); } catch(e) {}
+                }
+            } else {
+                await bucket.delete(fileId);
+            }
+        } else if (deleteMode === 'revert') {
+            await bucket.delete(fileId);
+        }
 
         res.status(200).json({ message: "File deleted successfully" });
     }

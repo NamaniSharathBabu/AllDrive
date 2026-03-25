@@ -511,9 +511,7 @@
     margin: 0;
 }
 
-.time-field input[type=number] {
-    -moz-appearance: textfield;
-}
+
 
 .modal-actions {
     display: flex;
