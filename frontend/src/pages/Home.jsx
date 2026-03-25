@@ -647,9 +647,7 @@ const Home = () => {
                         <FaBars />
                     </button>
                     <div className="navbar-brand" onClick={() => { setActiveNav('my-files'); navigate('/home'); }}>
-                        <div className="logo-icon">
-                            <span className="text-primary">All</span>Drive
-                        </div>
+                        <img src="/icon.JPG" alt="AllDrive Logo" className="logo-img" />
                     </div>
                 </div>
 
@@ -716,6 +714,11 @@ const Home = () => {
                         )}
                     </div>
                 </div>
+                {status && (
+                    <div className={`status-toast ${status.toLowerCase().includes('error') ? 'error' : 'success'}`}>
+                        {status}
+                    </div>
+                )}
             </nav>
 
             <div className={`main-layout ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
@@ -765,11 +768,6 @@ const Home = () => {
                             <button type="submit" disabled={uploading} className="btn btn-primary btn-full-width">
                                 {uploading ? 'Uploading...' : 'Upload Now'}
                             </button>
-                            {status && (
-                                <p className={`status-message ${status.includes('success') ? 'status-success' : 'status-error'}`}>
-                                    {status}
-                                </p>
-                            )}
                         </form>
                     </div>
                     )}
