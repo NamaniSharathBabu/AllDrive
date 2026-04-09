@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile, FaBars, FaBell, FaUserCircle, FaMoon, FaSun, FaCog, FaShieldAlt, FaChartPie, FaPlus, FaClock, FaStar, FaRegStar, FaUserFriends, FaTrash } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile, FaBars, FaBell, FaUserCircle, FaMoon, FaSun, FaCog, FaShieldAlt, FaChartPie, FaPlus, FaClock, FaStar, FaRegStar, FaTrash } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -757,9 +757,6 @@ const Home = () => {
                         </div>
                         <div className={`nav-link ${activeNav === 'starred' ? 'active' : ''}`} onClick={() => { setActiveNav('starred'); navigate('/home?path=/starred'); }}>
                             <FaStar className="nav-icon"/> Starred
-                        </div>
-                        <div className={`nav-link ${activeNav === 'shared' ? 'active' : ''}`} onClick={() => { setActiveNav('shared'); navigate('/home?path=/shared'); }}>
-                            <FaUserFriends className="nav-icon"/> Shared with Me
                         </div>
                         <div className={`nav-link ${activeNav === 'trash' ? 'active' : ''}`} onClick={() => { setActiveNav('trash'); navigate('/home?path=/trash'); }}>
                             <FaTrash className="nav-icon"/> Trash

@@ -238,7 +238,7 @@ export async function getFiles(req, res) {
             "metadata.userId": req.user.id,
             "metadata.path": req.query.path,
             "metadata.isPublic": true,
-            "metadata.publicExpiresAt": { $lt: new Date() }
+            "metadata.publicExpiresAt": { $ne: null, $lt: new Date() }
         }).toArray();
         const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
         for (const file of files) {
@@ -697,11 +697,16 @@ export async function makePublic(req, res) {
             Buffer.from(file.metadata.keyIv, 'hex'),
             Buffer.from(file.metadata.keyAuthTag, 'hex')
         )
-        const time = req.body.duration.split('-')
-        const days = parseInt(time[0])
-        const hrs = parseInt(time[1])
-        const mins = parseInt(time[2])
-        const duration = days * 24 * 60 * 60 + hrs * 60 * 60 + mins * 60;
+        let expiresAt = null;
+        if (req.body.duration !== 'permanent') {
+            const time = req.body.duration.split('-');
+            const days = parseInt(time[0]) || 0;
+            const hrs = parseInt(time[1]) || 0;
+            const mins = parseInt(time[2]) || 0;
+            const duration = days * 24 * 60 * 60 + hrs * 60 * 60 + mins * 60;
+            expiresAt = new Date(Date.now() + duration * 1000);
+        }
+
         if (!process.env.SERVER_MASTER_KEY) {
             return res.status(500).json({ error: 'Server master key not found' });
         }
@@ -717,7 +722,7 @@ export async function makePublic(req, res) {
                 "metadata.keyIv": encryptedFile.iv.toString('hex'),
                 "metadata.keyAuthTag": encryptedFile.authTag.toString('hex'),
                 "metadata.filePublicId": publicFileId,
-                "metadata.publicExpiresAt": new Date(Date.now() + duration * 1000)
+                "metadata.publicExpiresAt": expiresAt
             }
         });
         if (!updatedFile.modifiedCount) {
@@ -746,7 +751,7 @@ export async function publicFile(req, res) {
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'public, max-age=86400');
         res.flushHeaders();
-        if (file.metadata.publicExpiresAt < Date.now()) {
+        if (file.metadata.publicExpiresAt && file.metadata.publicExpiresAt < Date.now()) {
             const SERVER_MASTER_KEY = Buffer.from(process.env.SERVER_MASTER_KEY, 'hex');
             const fileKey = decryptKey(
                 Buffer.from(file.metadata.encryptedFileKey, 'hex'),
