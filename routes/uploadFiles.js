@@ -345,8 +345,12 @@ export async function deleteFile(req, res) {
                 }
             }
         } else if (deleteMode === 'revert') {
-            // Revert always hard-deletes the current version
-            await bucket.delete(fileId);
+            // Revert deletes current version or moves it to trash
+            if (permanent) {
+                await bucket.delete(fileId);
+            } else {
+                await filesCollection.updateOne({ _id: fileId }, { $set: { "metadata.path": "/trash" } });
+            }
         }
 
         res.status(200).json({ message: permanent ? "File deleted permanently" : "File moved to trash" });

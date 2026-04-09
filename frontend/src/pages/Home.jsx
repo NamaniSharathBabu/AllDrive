@@ -39,6 +39,7 @@ const Home = () => {
     const observerRef = useRef(null);//only loads when files in viewport
     const fileRefs = useRef({}); //Intersection observer for infinite scroll
     const fetchingRefs = useRef(new Set()); // Track currently fetching files to prevent duplicates
+    const abortControllers = useRef({}); // Track abort controllers for cancelling fetches
     const [showDurationModal, setShowDurationModal] = useState(false);
     const [selectedFileForPublic, setSelectedFileForPublic] = useState(null);
     const [isPermanent, setIsPermanent] = useState(false);
@@ -225,15 +226,12 @@ const Home = () => {
     const handleDeleteClick = (fileGroup) => {
         const activeFile = getActiveFile(fileGroup);
         const isTrash = activeNav === 'trash';
-        if (isTrash) {
-            setFileToDelete(activeFile);
-            if (fileGroup.versions && fileGroup.versions.length > 1) {
-                setShowDeleteModal(true);
-            } else {
-                handleDelete(activeFile._id, 'all', true);
-            }
+        setFileToDelete(activeFile);
+        
+        if (fileGroup.versions && fileGroup.versions.length > 1) {
+            setShowDeleteModal(true);
         } else {
-            handleDelete(activeFile._id, 'all', false);
+            handleDelete(activeFile._id, 'all', isTrash);
         }
     };
 
@@ -462,26 +460,50 @@ const Home = () => {
     useEffect(() => {
         observerRef.current = new IntersectionObserver(async (entries) => {
             for (const entrie of entries) {
-                if (!entrie.isIntersecting) continue;
                 const fileId = entrie.target.dataset.id;
+                if (!fileId) continue;
 
-                // Skip if no ID, already fetching, or already has a url (though state usage here is tricky without deps, the ref is the main guard)
-                if (!fileId || fetchingRefs.current.has(fileId)) continue;
+                if (!entrie.isIntersecting) {
+                    if (abortControllers.current[fileId]) {
+                        abortControllers.current[fileId].abort();
+                        delete abortControllers.current[fileId];
+                        fetchingRefs.current.delete(fileId);
+                    }
+                    continue;
+                }
 
-                // Mark as fetching
+                if (fetchingRefs.current.has(fileId)) continue;
                 fetchingRefs.current.add(fileId);
+                
+                const controller = new AbortController();
+                abortControllers.current[fileId] = controller;
 
                 try {
-                    const previewUrl = await previewFile(fileId);
+                    const previewUrl = await previewFile(fileId, controller.signal);
                     setPreviewUrls((prev) => ({
                         ...prev,
                         [fileId]: previewUrl
-                    }))
+                    }));
+                    if (!abortControllers.current[fileId]?.signal.aborted) {
+                        observerRef.current.unobserve(entrie.target);
+                    }
                 }
                 catch (err) {
-                    console.log(err);
+                    if (err.name === 'AbortError') {
+                        // was gracefully aborted, will retry when in view
+                    } else {
+                        console.error('Preview fetch error:', err);
+                        setPreviewUrls((prev) => ({
+                            ...prev,
+                            [fileId]: 'error'
+                        }));
+                        if (!abortControllers.current[fileId]?.signal.aborted) {
+                            observerRef.current.unobserve(entrie.target);
+                        }
+                    }
+                } finally {
+                    delete abortControllers.current[fileId];
                 }
-                observerRef.current.unobserve(entrie.target);
             }
         }, {
             root: null,
@@ -496,14 +518,12 @@ const Home = () => {
         return () => observerRef.current?.disconnect();
     }, []); // Removed previewUrls dependency to prevent observer recreation
 
-    async function previewFile(fileId) {
+    async function previewFile(fileId, signal) {
         const res = await fetch(`${API}/api/files/previewFile/${fileId}`, {
             credentials: 'include',
-            headers: { Authorization: 'Bearer ' + token }
+            headers: { Authorization: 'Bearer ' + token },
+            signal
         });
-
-
-
 
         if (!res.ok) {
             throw new Error('Preview fetch failed');
@@ -938,7 +958,7 @@ const Home = () => {
                                     const activeFile = getActiveFile(fileGroup); // Ensure activeFile is defined for dropdown logic
 
                                     return (
-                                        <li key={fileId} className="file-card" data-id={file._id}
+                                        <li key={`${fileId}-${file._id}`} className="file-card" data-id={file._id}
                                             ref={el => {
                                                 if (!el || !file?._id) return;
                                                 fileRefs.current[file._id] = el;
@@ -1041,22 +1061,31 @@ const Home = () => {
                                             <div className="file-preview">
                                                 {isImg ? (
                                                     previewUrls[file._id] ? (
-                                                        <img
-                                                            src={previewUrls[file._id]}
-                                                            alt={filename}
-                                                            className="preview-image"
-                                                        />
+                                                        previewUrls[file._id] === 'error' ? (
+                                                            <div className="preview-icon"><FaFileImage style={{opacity: 0.5}} /></div>
+                                                        ) : (
+                                                            <img
+                                                                src={previewUrls[file._id]}
+                                                                alt={filename}
+                                                                className="preview-image"
+                                                                onError={() => setPreviewUrls(p => ({...p, [file._id]: 'error'}))}
+                                                            />
+                                                        )
                                                     ) : (
                                                         <div>Loading...</div>
                                                     )
                                                 ) : isPdf ? (
                                                     previewUrls[file._id] ? (
-                                                        <iframe
-                                                            src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
-                                                            className="preview-iframe"
-                                                            title={filename}
-                                                            allow="autofocus"
-                                                        />
+                                                        previewUrls[file._id] === 'error' ? (
+                                                            <div className="preview-icon"><FaFilePdf style={{opacity: 0.5}} /></div>
+                                                        ) : (
+                                                            <iframe
+                                                                src={`${previewUrls[file._id]}#toolbar=0&navpanes=0&scrollbar=0`}
+                                                                className="preview-iframe"
+                                                                title={filename}
+                                                                allow="autofocus"
+                                                            />
+                                                        )
                                                     ) : (
                                                         <div>Loading...</div>
                                                     )
@@ -1094,10 +1123,14 @@ const Home = () => {
                 <div className="modal-overlay">
                     <div className="modal-box">
                         <h3>Delete File</h3>
-                        <p className="modal-description">This file has multiple versions. What would you like to delete?</p>
+                        <p className="modal-description">This file has multiple versions. What would you like to do?</p>
                         <div className="modal-actions" style={{display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px'}}>
-                            <button className="btn btn-primary" style={{backgroundColor: '#e74c3c'}} onClick={() => handleDelete(fileToDelete._id, 'all')}>Delete All Versions</button>
-                            <button className="btn btn-primary" onClick={() => handleDelete(fileToDelete._id, 'revert')}>Revert to Previous (Delete Current)</button>
+                            <button className="btn btn-primary" style={{backgroundColor: '#e74c3c'}} onClick={() => handleDelete(fileToDelete._id, 'all', activeNav === 'trash')}>
+                                {activeNav === 'trash' ? 'Delete All Versions Permanently' : 'Move All Versions to Trash'}
+                            </button>
+                            <button className="btn btn-primary" onClick={() => handleDelete(fileToDelete._id, 'revert', activeNav === 'trash')}>
+                                {activeNav === 'trash' ? 'Revert to Previous (Delete Current Permanently)' : 'Revert to Previous (Move Current to Trash)'}
+                            </button>
                             <button className="btn btn-secondary" onClick={() => { setShowDeleteModal(false); setFileToDelete(null); }}>Cancel</button>
                         </div>
                     </div>
