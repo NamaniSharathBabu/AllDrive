@@ -26,7 +26,7 @@
 }
 
 .mobile-menu-btn {
-    display: none;
+    display: block;
     background: none;
     border: none;
     color: var(--text-main);
@@ -240,8 +240,15 @@
     padding: 1rem;
     display: flex;
     flex-direction: column;
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, width 0.3s ease, padding 0.3s ease;
     flex-shrink: 0;
+    overflow: hidden;
+}
+
+.main-layout.sidebar-hidden .sidebar {
+    width: 0;
+    padding: 0;
+    border: none;
 }
 
 .btn-upload-sidebar {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile, FaBars, FaBell, FaUserCircle, FaMoon, FaSun, FaCog, FaShieldAlt, FaChartPie, FaPlus, FaClock, FaStar, FaRegStar, FaTrash } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaFileAlt, FaSignOutAlt, FaSearch, FaEllipsisV, FaFolder, FaFilePdf, FaFileWord, FaFileExcel, FaFilePowerpoint, FaFileImage, FaFileAudio, FaFileVideo, FaFileCode, FaFile, FaBars, FaBell, FaHistory, FaUserCircle, FaMoon, FaSun, FaCog, FaShieldAlt, FaChartPie, FaPlus, FaClock, FaStar, FaRegStar, FaTrash } from 'react-icons/fa';
 import './Home.css';
 import { useRef } from 'react';
 
@@ -21,6 +21,9 @@ const Home = () => {
     });
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+    const [historyData, setHistoryData] = useState([]);
     const [activeNav, setActiveNav] = useState('my-files');
     
     const [showModal, setShowModal] = useState(false);
@@ -112,6 +115,39 @@ const Home = () => {
         // Refresh when profile is opened
         if (isProfileOpen) fetchStorageStats();
     }, [token, isProfileOpen, files.length]);
+
+    const fetchHistory = async () => {
+        if(!token) return;
+        try {
+            const res = await fetch(`${API}/api/history?timeframe=today`, {
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setHistoryData(data);
+            }
+        } catch(err) {
+            console.error("Error fetching history");
+        }
+    };
+
+    const clearTodayHistory = async (e) => {
+        e.stopPropagation();
+        if(!window.confirm("Are you sure you want to clear today's history?")) return;
+        try {
+            const res = await fetch(`${API}/api/history?timeframe=today`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token },
+                credentials: 'include'
+            });
+            if (res.ok) {
+                setHistoryData([]);
+            }
+        } catch(err) {
+            console.error("Error clearing history");
+        }
+    };
 
     useEffect(() => {
         if (!token) {
@@ -655,6 +691,7 @@ const Home = () => {
         const handleClickOutside = () => {
             setActiveMenu(null);
             setIsProfileOpen(false);
+            setIsHistoryOpen(false);
         };
         document.addEventListener('click', handleClickOutside);
         return () => document.removeEventListener('click', handleClickOutside);
@@ -663,7 +700,7 @@ const Home = () => {
         <div className={`app-wrapper ${isDarkMode ? 'dark-theme' : ''}`}>
             <nav className="navbar">
                 <div className="navbar-left">
-                    <button className="icon-btn mobile-menu-btn" onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen); }}>
+                    <button className="icon-btn mobile-menu-btn" onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen); setIsSidebarCollapsed(!isSidebarCollapsed); }}>
                         <FaBars />
                     </button>
                     <div className="navbar-brand" onClick={() => { setActiveNav('my-files'); navigate('/home'); }}>
@@ -691,9 +728,32 @@ const Home = () => {
                     >
                         <FaPlus /> <span className="upload-text">New</span>
                     </button>
-                    <button className="icon-btn notification-btn">
-                        <FaBell />
-                    </button>
+                    <div className="history-menu-container" style={{ position: 'relative' }}>
+                        <button className="icon-btn history-btn" onClick={(e) => { e.stopPropagation(); setIsHistoryOpen(!isHistoryOpen); if(!isHistoryOpen) fetchHistory(); }}>
+                            <FaHistory />
+                        </button>
+                        {isHistoryOpen && (
+                            <div className="profile-dropdown" style={{ width: '320px', maxHeight: '400px', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+                                <div className="profile-header" style={{ paddingBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span className="profile-name" style={{ margin: 0 }}>Today's Activity</span>
+                                    {historyData.length > 0 && (
+                                        <button className="btn btn-ghost" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', color: 'var(--accent-error)' }} onClick={clearTodayHistory}>Clear</button>
+                                    )}
+                                </div>
+                                <div className="dropdown-divider"></div>
+                                {historyData.length === 0 ? (
+                                    <div className="menu-item" style={{ justifyContent: 'center', opacity: 0.7 }}>No recent activity</div>
+                                ) : (
+                                    historyData.map((item, idx) => (
+                                        <div key={idx} className="menu-item" style={{ fontSize: '0.85rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.2rem', padding: '0.5rem 1.5rem', cursor: 'default' }}>
+                                            <div><strong>{item.filename}</strong> was {item.action} at</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--color-primary)' }}>{new Date(item.timestamp).toLocaleString()}</div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
                     
                     <div className="profile-menu-container">
                         <button className="profile-btn" onClick={(e) => { e.stopPropagation(); setIsProfileOpen(!isProfileOpen); }}>
@@ -718,9 +778,9 @@ const Home = () => {
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 <div className="menu-item" onClick={() => { setIsProfileOpen(false); navigate('/account'); }}>
-                                    <FaCog className="menu-icon"/> Settings
+                                    <FaCog className="menu-icon"/> Account
                                 </div>
-                                <div className="menu-item disabled">
+                                <div className="menu-item" onClick={() => { setIsProfileOpen(false); navigate('/security'); }}>
                                     <FaShieldAlt className="menu-icon"/> Security
                                 </div>
                                 <div className="menu-item" onClick={() => { setIsDarkMode(!isDarkMode); setIsProfileOpen(false); }}>
@@ -741,7 +801,7 @@ const Home = () => {
                 )}
             </nav>
 
-            <div className={`main-layout ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+            <div className={`main-layout ${isMobileMenuOpen ? 'mobile-open' : ''} ${isSidebarCollapsed ? 'sidebar-hidden' : ''}`}>
                 <aside className="sidebar">
                     {activeNav === 'my-files' && (
                         <button className="btn btn-primary btn-upload-sidebar" onClick={() => fileInputRef.current && fileInputRef.current.click()}>

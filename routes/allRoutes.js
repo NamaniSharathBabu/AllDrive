@@ -3,7 +3,8 @@ import { login, register, changePassword } from './loginRegRoutes.js';
 import { uploadFiles, getFiles, deleteFile, restoreFile, toggleStarFile, getStorageStats, middlewareUpload, createFolder, getFolders, deleteFolder, downloadFile, previewFile } from './uploadFiles.js';
 import userModel from '../models/userModel.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
-import { makePublic, publicFile, makePrivate } from './uploadFiles.js';
+import { makePublic, publicFile, makePrivate, getPublicFilesList, makeAllPrivate } from './uploadFiles.js';
+import { getHistory, deleteHistory } from './historyRoutes.js';
 const router = express.Router();
 
 router.post('/login', login);
@@ -23,5 +24,9 @@ router.get('/files/previewFile/:fileId', authMiddleware, previewFile);
 router.post('/files/makePublic/:fileId', authMiddleware, makePublic);
 router.get('/files/public/:filePublicId', publicFile);
 router.post('/files/makePrivate/:fileId', authMiddleware, makePrivate);
+router.get('/files/public-list', authMiddleware, getPublicFilesList);
+router.post('/files/makeAllPrivate', authMiddleware, makeAllPrivate);
+router.get('/history', authMiddleware, getHistory);
+router.delete('/history', authMiddleware, deleteHistory);
 
 export default router;

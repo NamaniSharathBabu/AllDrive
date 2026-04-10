@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import foldermodel from "../models/folder.js";
 import crypto, { randomBytes } from "crypto";
 import argon2 from "argon2"; //for password creation
+import activityModel from "../models/activityModel.js";
 
 dotenv.config();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -217,6 +218,18 @@ export async function uploadFiles(req, res) {
         });
 
         const results = await Promise.all(uploadPromises);
+        
+        try {
+            const activities = results.map(r => ({
+                userId: req.user.id,
+                action: 'uploaded',
+                filename: r.filename
+            }));
+            await activityModel.insertMany(activities);
+        } catch(activityErr) {
+            console.error("Failed to log activity details:", activityErr);
+        }
+        
         res.status(201).json({ files: results });
 
     } catch (err) {
@@ -325,6 +338,8 @@ export async function deleteFile(req, res) {
         }
 
         const filesCollection = bucket.s._filesCollection;
+        const fileForLog = await filesCollection.findOne({ _id: fileId });
+        const filename = fileForLog ? fileForLog.filename : "Unknown File";
 
         if (deleteMode === 'all') {
             const file = await filesCollection.findOne({ _id: fileId });
@@ -354,6 +369,16 @@ export async function deleteFile(req, res) {
         }
 
         res.status(200).json({ message: permanent ? "File deleted permanently" : "File moved to trash" });
+        
+        try {
+            await activityModel.create({
+                userId: req.user.id,
+                action: permanent ? 'permanently deleted' : 'moved to trash',
+                filename: filename
+            });
+        } catch(activityErr) {
+            console.error("Error logging delete activity", activityErr);
+        }
     }
     catch (err) {
         res.status(500).json({ error: "Error deleting file" });
@@ -722,7 +747,8 @@ export async function makePublic(req, res) {
                 "metadata.keyIv": encryptedFile.iv.toString('hex'),
                 "metadata.keyAuthTag": encryptedFile.authTag.toString('hex'),
                 "metadata.filePublicId": publicFileId,
-                "metadata.publicExpiresAt": expiresAt
+                "metadata.publicExpiresAt": expiresAt,
+                "metadata.accessCount": 0
             }
         });
         if (!updatedFile.modifiedCount) {
@@ -776,6 +802,10 @@ export async function publicFile(req, res) {
             });
             return res.status(404).json({ error: 'File not found' });
         }
+
+        // Increment access count
+        await filesCollection.updateOne({ _id: file._id }, { $inc: { "metadata.accessCount": 1 } });
+
         const iv = Buffer.from(file.metadata.iv, 'hex');
         const fileKey = decryptKey(
             Buffer.from(file.metadata.encryptedFileKey, 'hex'),
@@ -863,7 +893,53 @@ export async function makePrivate(req, res) {
         res.status(200).json({ message: 'File made private successfully' });
     }
     catch (err) {
-        console.error("Error making file public:", err);
-        res.status(500).json({ error: "Error making file public: " + err.message })
+        console.error("Error making file private:", err);
+        res.status(500).json({ error: "Error making file private: " + err.message })
+    }
+}
+
+export async function getPublicFilesList(req, res) {
+    try {
+        const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
+        const publicFiles = await filesCollection.find({ 
+            "metadata.userId": req.user.id, 
+            "metadata.isPublic": true 
+        }).project({ filename: 1, metadata: 1, uploadDate: 1 }).toArray();
+        res.status(200).json(publicFiles);
+    } catch(err) {
+         res.status(500).json({ error: "Error fetching public files" });
+    }
+}
+
+export async function makeAllPrivate(req, res) {
+    try {
+        const bucket = await ensureBucket();
+        const filesCollection = bucket.s._filesCollection;
+        const publicFiles = await filesCollection.find({ "metadata.userId": req.user.id, "metadata.isPublic": true }).toArray();
+
+        for (const file of publicFiles) {
+            const fileKey = decryptKey(
+                Buffer.from(file.metadata.encryptedFileKey, 'hex'),
+                Buffer.from(process.env.SERVER_MASTER_KEY, 'hex'),
+                Buffer.from(file.metadata.keyIv, 'hex'),
+                Buffer.from(file.metadata.keyAuthTag, 'hex')
+            );
+            const encryptedFileKey = encryptKey(fileKey, Buffer.from(req.session.userMasterKey, 'hex'));
+            await filesCollection.updateOne({ _id: file._id }, {
+                $set: {
+                    "metadata.isPublic": false,
+                    "metadata.encryptedFileKey": encryptedFileKey.encryptedKey.toString('hex'),
+                    "metadata.keyIv": encryptedFileKey.iv.toString('hex'),
+                    "metadata.keyAuthTag": encryptedFileKey.authTag.toString('hex'),
+                    "metadata.filePublicId": null,
+                    "metadata.publicExpiresAt": null,
+                    "metadata.accessCount": 0
+                }
+            });
+        }
+        res.status(200).json({ message: "All files made private successfully" });
+    } catch(err) {
+        res.status(500).json({ error: "Error making all private" });
     }
 }

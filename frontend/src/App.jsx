@@ -5,6 +5,7 @@ import Register from './pages/Register';
 import Home from './pages/Home';
 import './index.css';
 import Account from './pages/Account';
+import Security from './pages/Security';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/home" element={<Home />} />
         <Route path="/account" element={<Account/>}/>
+        <Route path="/security" element={<Security/>}/>
         <Route path="/" element={<Navigate to="/home" replace />} />
       </Routes>
     </Router>

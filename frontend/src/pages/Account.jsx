@@ -16,6 +16,8 @@ function Account() {
     const [isUpdating, setIsUpdating] = useState(false);
     const API = import.meta.env.VITE_API_BASE_URL;
 
+
+
     useEffect(() => {
         const fetchStorage = async () => {
             if (!token) return;
@@ -103,6 +105,11 @@ function Account() {
                 <button className="back-btn" onClick={() => navigate('/home')}>
                     <FaArrowLeft /> Back to My Drive
                 </button>
+                {status.message && !showPasswordModal && (
+                    <div style={{ padding: '0.5rem 1rem', borderRadius: '8px', background: status.type === 'success' ? 'var(--accent-success)' : 'var(--accent-error)', color: 'white', position: 'absolute', right: '2rem' }}>
+                        {status.message}
+                    </div>
+                )}
             </nav>
 
             <div className="account-container">
